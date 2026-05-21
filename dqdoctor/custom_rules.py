@@ -11,7 +11,7 @@ def load_custom_rules(path: "str | Path") -> list[RuleSuggestion]:
     if not path.exists():
         raise FileNotFoundError(f"Rules file not found: {path}")
 
-    content = path.read_text(encoding="utf-8")
+    content = path.read_text(encoding="utf-8-sig")
     if path.suffix in (".yaml", ".yml"):
         import yaml
         data = yaml.safe_load(content)

@@ -14,13 +14,16 @@ def export_soda_cl(
     ]
     for rule in rules:
         if rule.rule_type == "not_null":
-            lines.append(f"  - missing({rule.column}) = 0")
+            lines.append(f"  - missing_count({rule.column}) = 0")
         elif rule.rule_type == "unique":
             lines.append(f"  - duplicate_count({rule.column}) = 0")
         elif rule.rule_type == "accepted_values":
             values = rule.params.get("values", [])
             vals_str = ", ".join(f"'{v}'" for v in values)
-            lines.append(f"  - values in ({rule.column}) must be in ({vals_str})")
+            lines.append(
+                f"  - invalid_count({rule.column}) = 0:"
+                f" {{ values: [{vals_str}] }}"
+            )
         elif rule.rule_type == "range":
             min_v = rule.params.get("min")
             max_v = rule.params.get("max")

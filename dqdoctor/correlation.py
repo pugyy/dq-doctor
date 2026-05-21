@@ -21,15 +21,17 @@ def detect_correlations(
     con = get_connection(str(db_path))
     try:
         qt = con.quote(table_name)
-        return _detect(con, qt)
+        return _detect(con, qt, table_name)
     finally:
         con.close()
 
 
-def _detect(con: ConnectionWrapper, table: str) -> list[ColumnCorrelation]:
+def _detect(
+    con: ConnectionWrapper, quoted_table: str, raw_table: str,
+) -> list[ColumnCorrelation]:
     from dqdoctor.connectors.auto import get_table_columns
 
-    columns = get_table_columns(con, table)
+    columns = get_table_columns(con, raw_table)
     numeric_cols = [c["name"] for c in columns if _is_likely_numeric(c["dtype"])]
     results: list[ColumnCorrelation] = []
 
@@ -43,7 +45,7 @@ def _detect(con: ConnectionWrapper, table: str) -> list[ColumnCorrelation]:
             if pair in pairs_checked:
                 continue
             pairs_checked.add(pair)
-            corr = _check_pair(con, table, col_a, col_b)
+            corr = _check_pair(con, quoted_table, col_a, col_b)
             if corr:
                 results.append(corr)
 
@@ -78,6 +80,12 @@ def _check_pair(
     sum_ab, sum_a, sum_b, sum_aa, sum_bb, n = row
     if n == 0:
         return None
+
+    sum_ab = float(sum_ab)
+    sum_a = float(sum_a)
+    sum_b = float(sum_b)
+    sum_aa = float(sum_aa)
+    sum_bb = float(sum_bb)
 
     mean_a = sum_a / n
     mean_b = sum_b / n
