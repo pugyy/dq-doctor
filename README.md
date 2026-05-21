@@ -12,7 +12,7 @@ A lightweight CLI that profiles your database tables, auto-generates quality che
 
 ```bash
 # Install
-pip install -e .
+pip install dq-doctor
 
 # Generate a demo database to try it out
 dqdoctor demo
