@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dq-doctor"
-version = "0.1.0"
+version = "0.3.0"
 description = "A lightweight data quality checkup CLI — no YAML, no rule syntax to remember."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -48,6 +48,9 @@ sql = [
 ]
 llm = [
     "openai>=1.0",
+]
+dashboard = [
+    "flask>=3.0",
 ]
 
 [tool.hatch.build.targets.wheel]
