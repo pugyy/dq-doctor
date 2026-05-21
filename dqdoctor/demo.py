@@ -4,6 +4,8 @@ from pathlib import Path
 
 import duckdb
 
+from dqdoctor.connectors.auto import list_tables as _auto_list_tables
+
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 DEFAULT_DB_PATH = EXAMPLES_DIR / "ecommerce" / "demo.duckdb"
 SEED_SQL_PATH = EXAMPLES_DIR / "ecommerce" / "seed.sql"
@@ -28,12 +30,9 @@ def create_demo_db(db_path: "str | Path | None" = None) -> Path:
 
 
 def list_tables(db_path: "str | Path") -> list[str]:
-    con = duckdb.connect(str(db_path), read_only=True)
+    from dqdoctor.connectors.auto import get_connection
+    con = get_connection(str(db_path), read_only=True)
     try:
-        rows = con.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'main' ORDER BY table_name"
-        ).fetchall()
-        return [r[0] for r in rows]
+        return _auto_list_tables(con)
     finally:
         con.close()

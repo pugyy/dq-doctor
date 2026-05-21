@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dqdoctor.connectors.duckdb import get_connection, get_table_columns
+from dqdoctor.connectors.auto import ConnectionWrapper, get_connection, get_table_columns
 from dqdoctor.models import ColumnProfile, ProfileResult
 
 _SEMANTIC_PATTERNS: dict[str, list[str]] = {
@@ -43,10 +43,6 @@ _TEMPORAL_TYPES = {
 }
 
 
-def _quote(name: str) -> str:
-    return f'"{name}"'
-
-
 def _is_numeric(dtype: str) -> bool:
     upper = dtype.upper()
     return upper in _NUMERIC_TYPES or upper.startswith("DECIMAL")
@@ -56,12 +52,14 @@ def _is_temporal(dtype: str) -> bool:
     return dtype.upper() in _TEMPORAL_TYPES
 
 
-def _fetch_min_max(con, table: str, col: str, dtype: str) -> tuple:
-    row = con.execute(
-        f"SELECT MIN({_quote(col)}), MAX({_quote(col)}) "
-        f"FROM {table} WHERE {_quote(col)} IS NOT NULL"
-    ).fetchone()
-    if row[0] is None:
+def _fetch_min_max(
+    con: ConnectionWrapper, table: str, col: str, dtype: str,
+) -> tuple:
+    row = con.fetchone(
+        f"SELECT MIN({con.quote(col)}), MAX({con.quote(col)}) "
+        f"FROM {table} WHERE {con.quote(col)} IS NOT NULL"
+    )
+    if row is None or row[0] is None:
         return None, None
     if _is_temporal(dtype):
         return str(row[0]), str(row[1])
@@ -69,20 +67,20 @@ def _fetch_min_max(con, table: str, col: str, dtype: str) -> tuple:
 
 
 def profile_column(
-    con, table: str, col: dict, row_count: int,
+    con: ConnectionWrapper, table: str, col: dict, row_count: int,
 ) -> ColumnProfile:
     name = col["name"]
     dtype = col["dtype"]
-    qcol = _quote(name)
+    qcol = con.quote(name)
 
-    null_count = con.execute(
+    null_count = con.fetchone(
         f"SELECT COUNT(*) FROM {table} WHERE {qcol} IS NULL"
-    ).fetchone()[0]
+    )[0]
     null_rate = round(null_count / row_count, 4) if row_count > 0 else 0.0
 
-    distinct_count = con.execute(
+    distinct_count = con.fetchone(
         f"SELECT COUNT(DISTINCT {qcol}) FROM {table}"
-    ).fetchone()[0]
+    )[0]
     distinct_rate = round(distinct_count / row_count, 4) if row_count > 0 else 0.0
 
     min_value = None
@@ -92,20 +90,20 @@ def profile_column(
     elif dtype.upper() in ("VARCHAR", "TEXT", "STRING", "BLOB"):
         min_value, max_value = _fetch_min_max(con, table, name, dtype)
 
-    sample_rows = con.execute(
+    sample_rows = con.fetchall(
         f"SELECT DISTINCT {qcol} FROM {table} "
         f"WHERE {qcol} IS NOT NULL LIMIT 10"
-    ).fetchall()
+    )
     sample_values = [r[0] for r in sample_rows]
     if _is_temporal(dtype):
         sample_values = [str(v) for v in sample_values]
 
     distinct_values: list = []
     if distinct_count <= 20:
-        dv_rows = con.execute(
+        dv_rows = con.fetchall(
             f"SELECT DISTINCT {qcol} FROM {table} "
             f"WHERE {qcol} IS NOT NULL ORDER BY {qcol}"
-        ).fetchall()
+        )
         distinct_values = [r[0] for r in dv_rows]
         if _is_temporal(dtype):
             distinct_values = [str(v) for v in distinct_values]
@@ -128,10 +126,10 @@ def profile_column(
 
 
 def profile_table(db_path: "str | Path", table_name: str) -> ProfileResult:
-    con = get_connection(db_path)
+    con = get_connection(str(db_path))
     try:
-        qt = _quote(table_name)
-        row_count = con.execute(f"SELECT COUNT(*) FROM {qt}").fetchone()[0]
+        qt = con.quote(table_name)
+        row_count = con.fetchone(f"SELECT COUNT(*) FROM {qt}")[0]
         columns_meta = get_table_columns(con, table_name)
         columns = [
             profile_column(con, qt, col, row_count) for col in columns_meta

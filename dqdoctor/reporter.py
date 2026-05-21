@@ -19,8 +19,10 @@ def build_report(
     rules: list[RuleSuggestion],
     results: list[ValidationResult],
 ) -> ReportResult:
-    passed = sum(1 for r in results if r.passed)
-    failed = len(results) - passed
+    suggested = sum(1 for r in results if r.total_count == 0 and r.passed)
+    validated = [r for r in results if not (r.total_count == 0 and r.passed)]
+    passed = sum(1 for r in validated if r.passed)
+    failed = len(validated) - passed
     return ReportResult(
         db_path=profile.db_path,
         table_name=profile.table_name,
@@ -29,6 +31,7 @@ def build_report(
         total_rules=len(rules),
         passed_rules=passed,
         failed_rules=failed,
+        suggested_rules=suggested,
         profile=profile,
         rules=rules,
         results=results,

@@ -108,7 +108,8 @@ def _run_check(
         f"[bold]{table}[/bold]: "
         f"Rules {report.total_rules}  "
         f"[green]Passed {report.passed_rules}[/green]  "
-        f"[red]Failed {report.failed_rules}[/red]"
+        f"[red]Failed {report.failed_rules}[/red]  "
+        f"[cyan]Suggested {report.suggested_rules}[/cyan]"
     )
 
     for r in results:

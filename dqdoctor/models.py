@@ -57,6 +57,7 @@ class ReportResult(BaseModel):
     total_rules: int
     passed_rules: int
     failed_rules: int
+    suggested_rules: int = 0
     profile: ProfileResult
     rules: list[RuleSuggestion]
     results: list[ValidationResult]
