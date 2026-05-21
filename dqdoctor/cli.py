@@ -111,7 +111,7 @@ def _run_check(
             console.print(f"[dim]Loaded {len(custom)} custom rules from {rules_file}[/dim]")
         except FileNotFoundError:
             console.print(f"[yellow]Rules file not found: {rules_file}[/yellow]")
-        except (ValueError, Exception) as e:
+        except Exception as e:
             console.print(f"[red]Error loading rules file: {e}[/red]")
 
     with console.status("[bold blue]Validating..."):
