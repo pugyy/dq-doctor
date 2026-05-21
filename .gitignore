@@ -15,7 +15,6 @@ docs/profile*.json
 docs/schema.yml
 docs/suite.json
 docs/dict.md
-docs/screenshot.png
 report.html
 CLAUDE.md
 examples/ecommerce/demo.duckdb

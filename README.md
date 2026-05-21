@@ -4,6 +4,8 @@
 
 A lightweight CLI that profiles your database tables, auto-generates quality check rules, runs validations, and outputs an HTML report. One command, zero config.
 
+![dq-doctor report screenshot](docs/screenshot.png)
+
 [English](#quick-start) | [中文说明](#中文说明)
 
 ## Quick Start
