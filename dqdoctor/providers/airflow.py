@@ -1,29 +1,40 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 
-class DQDoctorOperator:
+def _get_base_operator():
+    try:
+        from airflow.models import BaseOperator
+        return BaseOperator
+    except ImportError:
+        return object
+
+
+class DQDoctorOperator(_get_base_operator()):
     template_fields = ("db_path", "table_name")
 
     def __init__(
         self,
         db_path: str,
-        table_name: str | None = None,
+        table_name: Optional[str] = None,
         all_tables: bool = False,
         max_failures: int = 0,
         out: str = "report.html",
         **kwargs: Any,
     ):
-        super().__init__(**kwargs)
+        base = _get_base_operator()
+        if base is not object:
+            kwargs.setdefault("task_id", "dq_doctor")
+            super().__init__(**kwargs)
         self.db_path = db_path
         self.table_name = table_name
         self.all_tables = all_tables
         self.max_failures = max_failures
         self.out = out
 
-    def execute(self, context: Any | None = None) -> dict:
+    def execute(self, context: Any = None) -> dict:
         from dqdoctor.connectors.auto import get_connection, list_tables
         from dqdoctor.profiler import profile_table
         from dqdoctor.reporter import build_report, save_html
