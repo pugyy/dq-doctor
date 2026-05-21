@@ -19,27 +19,31 @@ def _sanitize(obj):
     return obj
 
 
-def _rule_to_dbt_test(rule: RuleSuggestion) -> dict[str, Any] | None:
+def _rule_to_dbt_test(rule: RuleSuggestion) -> Any | None:
     if rule.rule_type == "not_null":
-        return {"not_null": {"column_name": rule.column}}
+        return "not_null"
     if rule.rule_type == "unique":
-        return {"unique": {"column_name": rule.column}}
+        return "unique"
     if rule.rule_type == "accepted_values":
         return {
             "accepted_values": {
-                "column_name": rule.column,
-                "values": rule.params.get("values", []),
+                "values": _sanitize(rule.params.get("values", [])),
             }
         }
     if rule.rule_type == "range":
-        return {
-            "range": {
-                "column_name": rule.column,
-                "min": rule.params.get("min"),
-                "max": rule.params.get("max"),
-            }
-        }
+        min_val = _sanitize(rule.params.get("min"))
+        max_val = _sanitize(rule.params.get("max"))
+        return [
+            {"dbt_utils.expression_is_true": {"expression": f">= {min_val}"}},
+            {"dbt_utils.expression_is_true": {"expression": f"<= {max_val}"}},
+        ]
     return None
+
+
+_DBT_UTILS_NOTE = (
+    "# Note: range tests use dbt_utils.expression_is_true. "
+    "Install dbt-utils package to enable them.\n"
+)
 
 
 def export_dbt_schema(
@@ -65,7 +69,10 @@ def export_dbt_schema(
                 },
                 "tests": [],
             }
-        column_models[col]["tests"].append(dbt_test)
+        if isinstance(dbt_test, list):
+            column_models[col]["tests"].extend(dbt_test)
+        else:
+            column_models[col]["tests"].append(dbt_test)
 
     schema = {
         "version": 2,
@@ -77,9 +84,13 @@ def export_dbt_schema(
             }
         ],
     }
-    return yaml.dump(
+    has_range = any(r.rule_type == "range" for r in rules)
+    output = yaml.dump(
         _sanitize(schema), default_flow_style=False, sort_keys=False
     )
+    if has_range:
+        output = _DBT_UTILS_NOTE + output
+    return output
 
 
 def save_dbt_schema(
