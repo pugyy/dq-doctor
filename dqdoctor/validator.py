@@ -215,7 +215,7 @@ def validate_rules(
                     passed=True,
                     failed_count=0,
                     total_count=0,
-                    message=f"Unknown rule type '{rule.rule_type}', skipped.",
+                    message=f"Suggested by {rule.source}: {rule.reason}",
                 ))
                 continue
             results.append(validator(con, quoted_table, rule))

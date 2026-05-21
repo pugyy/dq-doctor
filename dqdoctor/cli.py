@@ -112,7 +112,10 @@ def _run_check(
     )
 
     for r in results:
-        icon = "[green]PASS[/green]" if r.passed else "[red]FAIL[/red]"
+        if r.total_count == 0 and r.passed:
+            icon = "[cyan]SUGGEST[/cyan]"
+        else:
+            icon = "[green]PASS[/green]" if r.passed else "[red]FAIL[/red]"
         console.print(f"  {icon} {r.rule_type} on {r.column}: {r.message}")
 
     console.print(f"[dim]Report: {report_path}[/dim]")
