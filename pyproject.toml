@@ -8,13 +8,14 @@ version = "0.1.0"
 description = "A lightweight data quality checkup CLI — no YAML, no rule syntax to remember."
 readme = "README.md"
 requires-python = ">=3.9"
-license = "MIT"
-authors = [{ name = "dq-doctor contributors" }]
+license = { text = "MIT" }
+authors = [{ name = "pugyy" }]
 keywords = ["data-quality", "cli", "duckdb", "profiling", "validation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Topic :: Database",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -28,6 +29,9 @@ dependencies = [
     "rich>=13.0",
     "pyyaml>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/pugyy/dq-doctor"
 
 [project.scripts]
 dqdoctor = "dqdoctor.cli:app"
