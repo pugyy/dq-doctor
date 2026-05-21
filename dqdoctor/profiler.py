@@ -4,6 +4,7 @@ from pathlib import Path
 
 from dqdoctor.connectors.auto import ConnectionWrapper, get_connection, get_table_columns
 from dqdoctor.models import ColumnProfile, ProfileResult
+from dqdoctor.pii_detector import detect_pii_type
 
 _SEMANTIC_PATTERNS: dict[str, list[str]] = {
     "identifier": ["id"],
@@ -109,6 +110,7 @@ def profile_column(
             distinct_values = [str(v) for v in distinct_values]
 
     semantic = infer_semantic_type(name)
+    pii = detect_pii_type(name, sample_values)
 
     return ColumnProfile(
         name=name,
@@ -122,6 +124,7 @@ def profile_column(
         sample_values=sample_values,
         distinct_values=distinct_values,
         inferred_semantic_type=semantic,
+        pii_type=pii,
     )
 
 

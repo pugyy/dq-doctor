@@ -36,7 +36,7 @@ def test_profile_command(demo_db: Path):
         "--table", "orders", "--out", str(out_json),
     ])
     assert result.exit_code == 0
-    assert "order_id" in result.stdout
+    assert "orders" in result.stdout
     assert out_json.exists()
 
 

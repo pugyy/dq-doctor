@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,7 @@ class ColumnProfile(BaseModel):
     sample_values: list[Any] = Field(default_factory=list)
     distinct_values: list[Any] = Field(default_factory=list)
     inferred_semantic_type: str = "unknown"
+    pii_type: Optional[str] = None
 
 
 class ProfileResult(BaseModel):
