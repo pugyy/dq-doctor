@@ -90,6 +90,8 @@ Note: dbt export generates a starter schema.yml structure. You may need to adjus
 
 Pass an LLM API key to get additional business rules beyond the heuristic ones:
 
+![LLM suggested rules](docs/screenshot_llm.png)
+
 ```bash
 dqdoctor check --db demo.duckdb --table orders ^
   --llm-key "sk-xxx" ^
