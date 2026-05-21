@@ -27,6 +27,47 @@ def test_export_dbt_schema(profile_and_rules):
     assert "order_id" in content
 
 
+def test_dbt_range_includes_dbt_utils_note(profile_and_rules):
+    profile, rules = profile_and_rules
+    range_rules = [r for r in rules if r.rule_type == "range"]
+    assert len(range_rules) > 0
+    content = export_dbt_schema(profile, rules)
+    assert "dbt-utils" in content
+    assert "dbt_utils.expression_is_true" in content
+
+
+def test_dbt_no_range_no_note(tmp_path: Path):
+    from dqdoctor.exporters.dbt import export_dbt_schema
+    from dqdoctor.models import ColumnProfile, ProfileResult, RuleSuggestion
+
+    profile = ProfileResult(
+        db_path="test.db",
+        table_name="t",
+        row_count=1,
+        columns=[
+            ColumnProfile(
+                name="status", dtype="VARCHAR",
+                null_count=0, null_rate=0.0,
+                distinct_count=2, distinct_rate=1.0,
+                inferred_semantic_type="category",
+            )
+        ],
+    )
+    rules = [
+        RuleSuggestion(
+            rule_id="not_null.status.1",
+            rule_type="not_null",
+            column="status",
+            confidence=0.9,
+            severity="high",
+            reason="test",
+        )
+    ]
+    content = export_dbt_schema(profile, rules)
+    assert "dbt-utils" not in content
+    assert "not_null" in content
+
+
 def test_save_dbt_schema(profile_and_rules, tmp_path: Path):
     profile, rules = profile_and_rules
     out = tmp_path / "schema.yml"
