@@ -599,7 +599,7 @@ def doctor() -> None:
             ver = getattr(m, "__version__", "installed")
             checks.append((display_label, True, ver))
         except ImportError:
-            install_hint = f"pip install dq-doctor[{extra}]"
+            install_hint = f"pip install dq-doctor\\[{extra}]"
             checks.append((display_label, False, f"not installed ({install_hint})"))
 
     core_ok = True

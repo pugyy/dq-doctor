@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dq-doctor"
-version = "0.6.2"
+version = "0.6.3"
 description = "A lightweight data quality checkup CLI — no YAML, no rule syntax to remember."
 readme = "README.md"
 requires-python = ">=3.9"

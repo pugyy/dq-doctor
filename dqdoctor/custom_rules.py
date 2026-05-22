@@ -107,12 +107,18 @@ def merge_rules(
     disabled_keys = disabled_keys or set()
     severity_overrides = severity_overrides or {}
 
+    custom_keys: set[tuple[str, str]] = set()
+    for r in custom_rules:
+        custom_keys.add((r.rule_type, r.column))
+
     seen: set[tuple[str, str]] = set()
     merged: list[RuleSuggestion] = []
 
     for r in auto_rules:
         key = (r.rule_type, r.column)
         if key in disabled_keys:
+            continue
+        if key in custom_keys:
             continue
         if key in seen:
             continue

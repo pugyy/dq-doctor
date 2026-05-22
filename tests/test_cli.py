@@ -143,6 +143,32 @@ def test_rules_disable_auto_rule(demo_db: Path):
             assert "FAIL" not in line
 
 
+def test_rules_override_params(demo_db: Path):
+    out_rules = demo_db.parent / "rules.yml"
+    runner.invoke(app, [
+        "rules-init", "--db", str(demo_db),
+        "--table", "orders", "--out", str(out_rules),
+    ])
+    import yaml
+    data = yaml.safe_load(out_rules.read_text(encoding="utf-8"))
+    for r in data["rules"]:
+        if r["rule_type"] == "range" and r["column"] == "user_id":
+            r["params"]["min"] = 999999
+    out_rules.write_text(yaml.dump(data, allow_unicode=True), encoding="utf-8")
+
+    out_html = demo_db.parent / "report.html"
+    result = runner.invoke(app, [
+        "check", "--db", str(demo_db),
+        "--table", "orders",
+        "--rules", str(out_rules),
+        "--out", str(out_html),
+    ])
+    assert result.exit_code == 0
+    for line in result.stdout.splitlines():
+        if "range" in line and "user_id" in line:
+            assert "FAIL" in line
+
+
 def test_demo_dirty_default_path(tmp_path: Path):
     import os
     prev = os.getcwd()
