@@ -163,7 +163,9 @@ def _run_check(
         )
 
     if config:
-        rules = apply_config_to_rules(rules, table, config)
+        rules, config_log = apply_config_to_rules(rules, table, config)
+    else:
+        config_log = []
 
     if rules_file:
         try:
@@ -240,15 +242,15 @@ def _run_check(
     report_path = save_html(report, out)
 
     score_color = (
-        "[green]" if report.quality_score >= 80
-        else "[yellow]" if report.quality_score >= 50
-        else "[red]"
+        "green" if report.quality_score >= 80
+        else "yellow" if report.quality_score >= 50
+        else "red"
     )
 
     console.print()
     console.print(
         f"[bold]{table}[/bold]: "
-        f"Score {score_color}{report.quality_score}/100[/{score_color[1:]}]  "
+        f"Score [{score_color}]{report.quality_score}/100[/{score_color}]  "
         f"Rules {report.total_rules}  "
         f"[green]Passed {report.passed_rules}[/green]  "
         f"[red]Failed {report.failed_rules}[/red]  "
@@ -270,6 +272,8 @@ def _run_check(
                 f"  [dim]{r.rule_type}.{r.column}: {source_label} "
                 f"(severity={r.severity})[/dim]"
             )
+        for log_line in config_log:
+            console.print(f"  [dim]{log_line}[/dim]")
         if rules_file:
             disabled = load_disabled_keys(rules_file)
             for rk in disabled:
@@ -293,8 +297,11 @@ def _run_check(
     console.print(f"[dim]Report: {report_path}[/dim]")
     console.print()
 
-    if ci and report.failed_rules > max_failures:
-        return report.failed_rules
+    if ci:
+        refint_fails = sum(1 for ri in refint_issues if ri.orphan_rows > 0)
+        total_fails = report.failed_rules + refint_fails
+        if total_fails > max_failures:
+            return total_fails
     return 0
 
 

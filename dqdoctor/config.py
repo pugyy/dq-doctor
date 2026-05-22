@@ -46,29 +46,38 @@ def load_config(path: "str | Path | None" = None) -> DQConfig:
 
 def apply_config_to_rules(
     rules: list, table_name: str, config: DQConfig,
-) -> list:
+) -> tuple[list, list[str]]:
     tc = config.tables.get(table_name)
     if tc is None:
-        return rules
+        return rules, []
 
+    log: list[str] = []
     result = []
     for r in rules:
         rule_key = f"{r.rule_type}:{r.column}"
         rule_key_alt = f"{r.column}:{r.rule_type}"
         if rule_key in tc.disable_rules or rule_key_alt in tc.disable_rules:
+            log.append(f"{r.rule_type}.{r.column}: disabled by .dqdoctor.yml")
             continue
         if r.rule_type in tc.disable_rules:
+            log.append(f"{r.rule_type}.{r.column}: disabled by .dqdoctor.yml (rule_type)")
             continue
+        old_sev = r.severity
         if rule_key in tc.severity:
             r.severity = tc.severity[rule_key]
         elif rule_key_alt in tc.severity:
             r.severity = tc.severity[rule_key_alt]
+        if r.severity != old_sev:
+            log.append(
+                f"{r.rule_type}.{r.column}: severity {old_sev} -> {r.severity} "
+                f"by .dqdoctor.yml"
+            )
         if r.rule_type == "freshness" and r.column in tc.freshness:
             override = tc.freshness[r.column]
             if "max_age_hours" in override:
                 r.params["max_age_hours"] = override["max_age_hours"]
         result.append(r)
-    return result
+    return result, log
 
 
 def get_sql_rules(config: DQConfig, table_name: str) -> list[dict[str, Any]]:
