@@ -7,7 +7,12 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from dqdoctor.custom_rules import load_custom_rules, merge_rules
+from dqdoctor.custom_rules import (
+    load_custom_rules,
+    load_disabled_keys,
+    load_severity_overrides,
+    merge_rules,
+)
 from dqdoctor.demo import create_demo_db, create_dirty_db, list_tables
 from dqdoctor.exporters.dbt import save_dbt_schema
 from dqdoctor.exporters.deequ import save_deequ
@@ -162,8 +167,14 @@ def _run_check(
     if rules_file:
         try:
             custom = load_custom_rules(rules_file)
-            rules = merge_rules(rules, custom)
-            console.print(f"[dim]Loaded {len(custom)} custom rules from {rules_file}[/dim]")
+            disabled = load_disabled_keys(rules_file)
+            sev_overrides = load_severity_overrides(rules_file)
+            rules = merge_rules(rules, custom, disabled, sev_overrides)
+            n_disabled = len(disabled)
+            msg = f"Loaded {len(custom)} rules from {rules_file}"
+            if n_disabled:
+                msg += f" ({n_disabled} disabled)"
+            console.print(f"[dim]{msg}[/dim]")
         except FileNotFoundError:
             console.print(f"[yellow]Rules file not found: {rules_file}[/yellow]")
         except Exception as e:
@@ -573,7 +584,7 @@ def doctor() -> None:
     )
     checks.append(("Config file", config_ok, config_msg))
 
-    non_core = {"SQLAlchemy", "psycopg2", "pymysql", "OpenAI", "Flask", "Config file"}
+    non_core_prefixes = ("SQLAlchemy", "psycopg2", "pymysql", "OpenAI", "Flask")
     optional = [
         ("SQLAlchemy", "sqlalchemy", "sql"),
         ("psycopg2", "psycopg2", "sql"),
@@ -582,13 +593,14 @@ def doctor() -> None:
         ("Flask", "flask", "dashboard"),
     ]
     for label, mod_name, extra in optional:
+        display_label = f"{label} \\[{extra}]"
         try:
             m = importlib.import_module(mod_name)
             ver = getattr(m, "__version__", "installed")
-            checks.append((f"{label} [{extra}]", True, ver))
+            checks.append((display_label, True, ver))
         except ImportError:
             install_hint = f"pip install dq-doctor[{extra}]"
-            checks.append((f"{label} [{extra}]", False, f"not installed ({install_hint})"))
+            checks.append((display_label, False, f"not installed ({install_hint})"))
 
     core_ok = True
     table = Table()
@@ -596,12 +608,14 @@ def doctor() -> None:
     table.add_column("Status")
     table.add_column("Detail")
     for name, ok, detail in checks:
+        is_optional = name.startswith(non_core_prefixes) or name == "Config file"
         icon = (
             "[green]OK[/green]" if ok
-            else "[yellow]--[/yellow]" if name in non_core
+            else "[yellow]--[/yellow]" if is_optional
             else "[red]MISS[/red]"
         )
-        if not ok and name not in non_core:
+        if not ok and not is_optional:
+            core_ok = False
             core_ok = False
         table.add_row(name, icon, detail)
     console.print(table)

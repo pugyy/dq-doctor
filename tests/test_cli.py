@@ -113,7 +113,34 @@ def test_rules_init_check_roundtrip(demo_db: Path):
         "--out", str(out_html),
     ])
     assert result.exit_code == 0
-    assert "Loaded" in result.stdout or "PASS" in result.stdout
+    assert "PASS" in result.stdout
+
+
+def test_rules_disable_auto_rule(demo_db: Path):
+    out_rules = demo_db.parent / "rules.yml"
+    runner.invoke(app, [
+        "rules-init", "--db", str(demo_db),
+        "--table", "orders", "--out", str(out_rules),
+    ])
+    import yaml
+    data = yaml.safe_load(out_rules.read_text(encoding="utf-8"))
+    for r in data["rules"]:
+        if r["rule_type"] == "not_null" and r["column"] == "order_id":
+            r["enabled"] = False
+    out_rules.write_text(yaml.dump(data, allow_unicode=True), encoding="utf-8")
+
+    out_html = demo_db.parent / "report.html"
+    result = runner.invoke(app, [
+        "check", "--db", str(demo_db),
+        "--table", "orders",
+        "--rules", str(out_rules),
+        "--out", str(out_html),
+    ])
+    assert result.exit_code == 0
+    for line in result.stdout.splitlines():
+        if "not_null" in line and "order_id" in line:
+            assert "PASS" not in line
+            assert "FAIL" not in line
 
 
 def test_demo_dirty_default_path(tmp_path: Path):
