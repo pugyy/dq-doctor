@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from dqdoctor.custom_rules import load_custom_rules, merge_rules
-from dqdoctor.demo import create_demo_db, list_tables
+from dqdoctor.demo import create_demo_db, create_dirty_db, list_tables
 from dqdoctor.exporters.dbt import save_dbt_schema
 from dqdoctor.exporters.deequ import save_deequ
 from dqdoctor.exporters.gx import save_gx_suite
@@ -18,6 +18,7 @@ from dqdoctor.models import ProfileResult
 from dqdoctor.profiler import profile_table
 from dqdoctor.reporter import build_report, save_html
 from dqdoctor.rule_engine import generate_rules
+from dqdoctor.sql_rules import execute_sql_rules
 from dqdoctor.validator import validate_rules
 
 app = typer.Typer(
@@ -33,10 +34,17 @@ def demo(
     output: Optional[str] = typer.Option(
         None, "--output", "-o", help="Output DuckDB path"
     ),
+    dirty: bool = typer.Option(
+        False, "--dirty", help="Generate dirty demo with intentional data quality issues"
+    ),
 ) -> None:
-    db_path = create_demo_db(output)
+    if dirty:
+        db_path = create_dirty_db(output)
+        console.print("[yellow]Dirty demo database created (contains issues!):[/yellow]")
+    else:
+        db_path = create_demo_db(output)
+        console.print(f"[green]Demo database created:[/green] {db_path}")
     tables = list_tables(db_path)
-    console.print(f"[green]Demo database created:[/green] {db_path}")
     console.print(f"[blue]Tables:[/blue] {', '.join(tables)}")
     console.print(
         f"[dim]Try: dqdoctor check --db {db_path} "
@@ -92,7 +100,10 @@ def _run_check(
     llm_base_url: Optional[str] = None,
     llm_model: str = "deepseek-chat",
     rules_file: Optional[str] = None,
+    config: Any = None,
 ) -> int:
+    from dqdoctor.config import apply_config_to_rules, get_sql_rules
+
     with console.status("[bold blue]Profiling table..."):
         profile_result = profile_table(db, table)
 
@@ -103,6 +114,9 @@ def _run_check(
             llm_base_url=llm_base_url,
             llm_model=llm_model,
         )
+
+    if config:
+        rules = apply_config_to_rules(rules, table, config)
 
     if rules_file:
         try:
@@ -116,6 +130,26 @@ def _run_check(
 
     with console.status("[bold blue]Validating..."):
         results = validate_rules(db, table, rules)
+
+    sql_rule_defs = []
+    if config:
+        sql_rule_defs = get_sql_rules(config, table)
+    if sql_rule_defs:
+        from dqdoctor.models import RuleSuggestion
+
+        with console.status("[bold blue]Running SQL rules..."):
+            sql_results = execute_sql_rules(db, table, sql_rule_defs)
+            results.extend(sql_results)
+            for sr in sql_results:
+                rules.append(RuleSuggestion(
+                    rule_id=sr.rule_id,
+                    rule_type="sql",
+                    column="*",
+                    confidence=0.9,
+                    severity="medium",
+                    reason=sr.message,
+                    source="config",
+                ))
 
     report = build_report(profile_result, rules, results)
     report_path = save_html(report, out)
@@ -200,9 +234,16 @@ def check(
     rules: Optional[str] = typer.Option(
         None, "--rules", help="Path to custom rules file (JSON/YAML)"
     ),
+    config: Optional[str] = typer.Option(
+        None, "--config", help="Path to .dqdoctor.yml config file"
+    ),
 ) -> None:
+    from dqdoctor.config import load_config
+
+    dq_config = load_config(config)
+    effective_db = dq_config.db or db
     if all_tables:
-        table_list = list_tables(db)
+        table_list = list_tables(effective_db)
         if not table_list:
             console.print("[yellow]No tables found.[/yellow]")
             raise typer.Exit(0)
@@ -212,9 +253,10 @@ def check(
                 f"{Path(out).stem}_{t}{Path(out).suffix}"
             ))
             failures = _run_check(
-                db, t, table_out, ci=ci, max_failures=max_failures,
+                effective_db, t, table_out, ci=ci, max_failures=max_failures,
                 llm_key=llm_key, llm_base_url=llm_base_url,
                 llm_model=llm_model, rules_file=rules,
+                config=dq_config,
             )
             total_failures += failures
         if ci and total_failures > 0:
@@ -230,9 +272,10 @@ def check(
             )
             raise typer.Exit(1)
         failures = _run_check(
-            db, table, out, ci=ci, max_failures=max_failures,
+            effective_db, table, out, ci=ci, max_failures=max_failures,
             llm_key=llm_key, llm_base_url=llm_base_url,
             llm_model=llm_model, rules_file=rules,
+            config=dq_config,
         )
         if ci and failures > 0:
             raise typer.Exit(1)
@@ -376,6 +419,56 @@ def serve(
 ) -> None:
     from dqdoctor.dashboard import run_dashboard
     run_dashboard(db, host=host, port=port)
+
+
+@app.command()
+def refint(
+    db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
+) -> None:
+    from dqdoctor.ref_integrity import check_referential_integrity
+
+    with console.status("[bold blue]Checking referential integrity..."):
+        results = check_referential_integrity(db)
+
+    if not results:
+        console.print("[yellow]No foreign key relationships found.[/yellow]")
+        return
+
+    for r in results:
+        icon = "[green]PASS[/green]" if r.passed else "[red]FAIL[/red]"
+        console.print(
+            f"  {icon} {r.from_table}.{r.from_column} → "
+            f"{r.to_table}.{r.to_column}: "
+            f"{r.orphan_rows}/{r.total_rows} orphans"
+        )
+        if r.sample_orphans:
+            samples = ", ".join(str(v) for v in r.sample_orphans[:5])
+            console.print(f"       Sample orphans: [{samples}]")
+
+
+@app.command()
+def init() -> None:
+    config_content = """\
+# dq-doctor configuration
+db: examples/ecommerce/demo.duckdb
+
+tables:
+  orders:
+    freshness:
+      created_at:
+        max_age_hours: 48
+    disable_rules:
+      - range:user_id
+    severity:
+      order_id:not_null: high
+    sql_rules:
+      - name: order_amount_positive
+        query: "SELECT COUNT(*) FROM orders WHERE total_amount <= 0"
+        expect: 0
+"""
+    Path(".dqdoctor.yml").write_text(config_content, encoding="utf-8")
+    console.print("[green]Created .dqdoctor.yml[/green]")
+    console.print("[dim]Edit it to configure your project.[/dim]")
 
 
 if __name__ == "__main__":

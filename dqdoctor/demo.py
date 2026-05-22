@@ -9,6 +9,8 @@ from dqdoctor.connectors.auto import list_tables as _auto_list_tables
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 DEFAULT_DB_PATH = EXAMPLES_DIR / "ecommerce" / "demo.duckdb"
 SEED_SQL_PATH = EXAMPLES_DIR / "ecommerce" / "seed.sql"
+DIRTY_SEED_PATH = EXAMPLES_DIR / "ecommerce" / "dirty_seed.sql"
+DEFAULT_DIRTY_PATH = EXAMPLES_DIR / "ecommerce" / "dirty.duckdb"
 
 
 def create_demo_db(db_path: "str | Path | None" = None) -> Path:
@@ -19,6 +21,24 @@ def create_demo_db(db_path: "str | Path | None" = None) -> Path:
         db_path.unlink()
 
     seed_sql = SEED_SQL_PATH.read_text(encoding="utf-8")
+
+    con = duckdb.connect(str(db_path))
+    try:
+        con.execute(seed_sql)
+    finally:
+        con.close()
+
+    return db_path
+
+
+def create_dirty_db(db_path: "str | Path | None" = None) -> Path:
+    db_path = Path(db_path) if db_path else DEFAULT_DIRTY_PATH
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if db_path.exists():
+        db_path.unlink()
+
+    seed_sql = DIRTY_SEED_PATH.read_text(encoding="utf-8")
 
     con = duckdb.connect(str(db_path))
     try:
