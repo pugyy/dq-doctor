@@ -151,6 +151,9 @@ Docker examples / Docker 示例: [examples/postgres-demo/](examples/postgres-dem
 
 ```bash
 pip install dq-doctor[llm]
+
+# Replace --llm-key, --llm-base-url, --llm-model with your own API / 替换为你自己的 API 密钥、地址和模型
+# Example below uses DeepSeek / 以下以 DeepSeek 为例
 dqdoctor check --db demo.duckdb --table orders \
   --llm-key "sk-xxx" \
   --llm-base-url "https://api.deepseek.com/v1" \
