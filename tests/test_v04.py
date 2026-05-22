@@ -79,7 +79,7 @@ def test_apply_config_disable_rules():
         ),
     ]
     config = DQConfig(tables={"orders": TableConfig(disable_rules=["range:user_id"])})
-    result = apply_config_to_rules(rules, "orders", config)
+    result, log = apply_config_to_rules(rules, "orders", config)
     assert len(result) == 1
     assert result[0].rule_type == "not_null"
 
@@ -98,7 +98,7 @@ def test_apply_config_override_severity():
     config = DQConfig(tables={
         "orders": TableConfig(severity={"order_id:not_null": "high"})
     })
-    result = apply_config_to_rules(rules, "orders", config)
+    result, log = apply_config_to_rules(rules, "orders", config)
     assert result[0].severity == "high"
 
 
