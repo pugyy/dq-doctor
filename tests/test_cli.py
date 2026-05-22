@@ -191,3 +191,65 @@ def test_check_save_profile(demo_db: Path, tmp_path: Path):
     assert result.exit_code == 0
     saved = list(profile_dir.glob("orders_*.json"))
     assert len(saved) == 1
+
+
+def test_check_shows_score(demo_db: Path):
+    out_html = demo_db.parent / "report.html"
+    result = runner.invoke(app, [
+        "check", "--db", str(demo_db),
+        "--table", "orders", "--out", str(out_html),
+    ])
+    assert result.exit_code == 0
+    assert "Score" in result.stdout
+    assert "/100" in result.stdout
+    assert "]" not in result.stdout.split("Score")[1].split("/100")[0]
+
+
+def test_check_verbose_rules(demo_db: Path):
+    out_html = demo_db.parent / "report.html"
+    result = runner.invoke(app, [
+        "check", "--db", str(demo_db),
+        "--table", "orders",
+        "--verbose-rules",
+        "--out", str(out_html),
+    ])
+    assert result.exit_code == 0
+    assert "Rule sources:" in result.stdout
+    assert "severity=" in result.stdout
+
+
+def test_check_verbose_rules_config(demo_db: Path):
+    import yaml
+    config_path = demo_db.parent / ".dqdoctor.yml"
+    config_data = {
+        "db": str(demo_db),
+        "tables": {
+            "orders": {
+                "disable_rules": ["range:user_id"],
+                "severity": {"total_amount:range": "high"},
+            }
+        },
+    }
+    config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+
+    out_html = demo_db.parent / "report.html"
+    result = runner.invoke(app, [
+        "check", "--config", str(config_path),
+        "--table", "orders",
+        "--verbose-rules",
+        "--out", str(out_html),
+    ])
+    assert result.exit_code == 0
+    assert "disabled by" in result.stdout
+    assert "severity" in result.stdout
+
+
+def test_ci_refint_failure(tmp_path: Path):
+    from dqdoctor.demo import create_dirty_db
+    dirty_db = create_dirty_db(tmp_path / "dirty.duckdb")
+    result = runner.invoke(app, [
+        "check", "--db", str(dirty_db),
+        "--table", "dirty_orders",
+        "--ci", "--max-failures", "0",
+    ])
+    assert result.exit_code != 0
