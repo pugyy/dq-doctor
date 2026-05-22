@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dq-doctor"
-version = "0.4.0"
+version = "0.4.1"
 description = "A lightweight data quality checkup CLI — no YAML, no rule syntax to remember."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -55,6 +55,10 @@ dashboard = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["dqdoctor"]
+artifacts = ["dqdoctor/templates/*.html"]
+
+[tool.hatch.build.targets.sdist]
+artifacts = ["dqdoctor/templates/*.html"]
 
 [tool.ruff]
 target-version = "py39"

@@ -54,9 +54,19 @@ def demo(
 
 @app.command()
 def tables(
-    db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
+    db: Optional[str] = typer.Option(
+        None, "--db", help="Path to database"
+    ),
+    config: Optional[str] = typer.Option(
+        None, "--config", help="Path to .dqdoctor.yml config file"
+    ),
 ) -> None:
-    table_list = list_tables(db)
+    from dqdoctor.config import load_config as _load_config
+    effective_db = _load_config(config).db or db
+    if not effective_db:
+        console.print("[red]Error: --db is required.[/red]")
+        raise typer.Exit(1)
+    table_list = list_tables(effective_db)
     for t in table_list:
         console.print(f"  {t}")
     console.print(f"[dim]{len(table_list)} table(s)[/dim]")
@@ -206,7 +216,9 @@ def profile(
 
 @app.command()
 def check(
-    db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
+    db: Optional[str] = typer.Option(
+        None, "--db", help="Path to database (or set in .dqdoctor.yml)"
+    ),
     table: Optional[str] = typer.Option(
         None, "--table", help="Table name to check"
     ),
@@ -242,6 +254,11 @@ def check(
 
     dq_config = load_config(config)
     effective_db = dq_config.db or db
+    if not effective_db:
+        console.print(
+            "[red]Error: --db is required (or set db in .dqdoctor.yml).[/red]"
+        )
+        raise typer.Exit(1)
     if all_tables:
         table_list = list_tables(effective_db)
         if not table_list:

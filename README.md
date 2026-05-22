@@ -40,12 +40,16 @@ That's it. Open `report.html` in your browser.
 ## What It Does
 
 ```
-DuckDB (first-class)
+DuckDB (first-class) / PostgreSQL / MySQL
   → Profile table structure & column distributions
   → Auto-generate quality rules (not_null, unique, accepted_values, range, freshness)
-  → Execute validations
+  → Execute validations + custom SQL rules
+  → PII detection (email, phone, ID card, IP, etc.)
+  → Cross-table FK discovery & referential integrity checks
+  → Column correlation detection
+  → Profile drift comparison
   → Output HTML report
-  → Export to dbt schema.yml / Great Expectations / Markdown
+  → Export to dbt / GX / Soda CL / Deequ / Markdown
 ```
 
 **Every rule comes with a human-readable reason** — so you know *why* the rule was suggested, not just *what* it checks.
@@ -82,6 +86,12 @@ dqdoctor export --format gx --out suite.json
 
 # Markdown data dictionary
 dqdoctor export --format markdown --out dict.md
+
+# Soda CL checks
+dqdoctor export --format soda --out checks.yml
+
+# Deequ-style JSON
+dqdoctor export --format deequ --out checks.json
 ```
 
 Note: dbt export generates a starter schema.yml structure. You may need to adjust test types (e.g. `range`) to match your dbt version and packages.
@@ -107,6 +117,64 @@ Use in CI/CD pipelines — exits with code 1 when failures exceed threshold:
 
 ```bash
 dqdoctor check --db demo.duckdb --table orders --ci --max-failures 0
+```
+
+## Configuration File
+
+Generate a `.dqdoctor.yml` config to persist settings:
+
+```bash
+dqdoctor init
+```
+
+```yaml
+# .dqdoctor.yml
+db: demo.duckdb
+
+tables:
+  orders:
+    freshness:
+      created_at:
+        max_age_hours: 48
+    disable_rules:
+      - range:user_id
+    severity:
+      order_id:not_null: high
+    sql_rules:
+      - name: amount_positive
+        query: "SELECT COUNT(*) FROM orders WHERE total_amount <= 0"
+        expect: 0
+```
+
+```bash
+dqdoctor check --config .dqdoctor.yml --table orders
+```
+
+## Advanced Commands
+
+```bash
+# Discover foreign keys across tables
+dqdoctor fk --db demo.duckdb
+
+# Check referential integrity (orphan detection)
+dqdoctor refint --db demo.duckdb
+
+# Detect column correlations
+dqdoctor correlate --db demo.duckdb --table orders
+
+# Compare profile drift between runs
+dqdoctor drift --old profile_v1.json --new profile_v2.json
+
+# Discover data lineage (FK + correlations)
+dqdoctor lineage --db demo.duckdb
+
+# Generate dirty demo data (with intentional issues)
+dqdoctor demo --dirty
+dqdoctor check --db dirty.duckdb --all-tables
+
+# Web dashboard
+pip install dq-doctor[dashboard]
+dqdoctor serve --db demo.duckdb
 ```
 
 ## Why Not Great Expectations / Soda / dbt?
@@ -155,12 +223,16 @@ dqdoctor export --db examples/ecommerce/demo.duckdb --table orders --format mark
 ### 它做了什么
 
 ```
-DuckDB（一等支持）
+DuckDB（一等支持）/ PostgreSQL / MySQL
   → 分析表结构和字段分布
   → 自动生成质量规则（not_null, unique, accepted_values, range, freshness）
-  → 执行校验
+  → 执行校验 + 自定义 SQL 规则
+  → PII 敏感数据检测（邮箱、手机、身份证、IP 等）
+  → 跨表外键发现 + 参照完整性校验
+  → 列间相关性检测
+  → Profile 漂移对比
   → 输出 HTML 报告
-  → 导出为 dbt schema.yml / Great Expectations / Markdown
+  → 导出 dbt / GX / Soda CL / Deequ / Markdown
 ```
 
 **每条规则都有可读的生成原因** — 你不仅知道检查了什么，还知道为什么建议这个规则。
@@ -197,6 +269,12 @@ dqdoctor export --format gx --out suite.json
 
 # Markdown 数据字典
 dqdoctor export --format markdown --out dict.md
+
+# Soda CL checks
+dqdoctor export --format soda --out checks.yml
+
+# Deequ-style JSON
+dqdoctor export --format deequ --out checks.json
 ```
 
 注意：dbt 导出生成的是 starter 格式的 schema.yml。range 规则使用 `dbt_utils.expression_is_true`，需要安装 dbt-utils 包。
@@ -224,6 +302,64 @@ LLM 生成的规则显示为 **SUGGEST** 状态（未实际校验），与通过
 
 ```bash
 dqdoctor check --db demo.duckdb --table orders --ci --max-failures 0
+```
+
+### 配置文件
+
+一键生成 `.dqdoctor.yml` 配置文件：
+
+```bash
+dqdoctor init
+```
+
+```yaml
+# .dqdoctor.yml
+db: demo.duckdb
+
+tables:
+  orders:
+    freshness:
+      created_at:
+        max_age_hours: 48
+    disable_rules:
+      - range:user_id
+    severity:
+      order_id:not_null: high
+    sql_rules:
+      - name: amount_positive
+        query: "SELECT COUNT(*) FROM orders WHERE total_amount <= 0"
+        expect: 0
+```
+
+```bash
+dqdoctor check --config .dqdoctor.yml --table orders
+```
+
+### 高级命令
+
+```bash
+# 发现跨表外键
+dqdoctor fk --db demo.duckdb
+
+# 参照完整性校验（孤立记录检测）
+dqdoctor refint --db demo.duckdb
+
+# 列间相关性检测
+dqdoctor correlate --db demo.duckdb --table orders
+
+# Profile 漂移对比
+dqdoctor drift --old profile_v1.json --new profile_v2.json
+
+# 数据血缘发现（FK + 相关性）
+dqdoctor lineage --db demo.duckdb
+
+# 生成脏数据 demo（故意有问题）
+dqdoctor demo --dirty
+dqdoctor check --db dirty.duckdb --all-tables
+
+# Web 看板
+pip install dq-doctor[dashboard]
+dqdoctor serve --db demo.duckdb
 ```
 
 ### 为什么不用 Great Expectations / Soda / dbt？
@@ -263,7 +399,7 @@ git clone https://github.com/pugyy/dq-doctor.git
 cd dq-doctor
 pip install -e ".[dev]"
 
-# Run tests (66 tests)
+# Run tests (98 tests)
 pytest tests/ -v
 
 # Lint
@@ -276,12 +412,14 @@ dqdoctor check --db examples/ecommerce/demo.duckdb --table orders
 
 ## Roadmap
 
-- [x] PostgreSQL / MySQL connector framework (DuckDB first-class)
-- [x] dbt schema.yml native format export
-- [x] LLM-enhanced rule suggestions
-- [x] PyPI published (v0.2.0)
+- [x] PostgreSQL / MySQL connector framework + CI integration testing
+- [x] Configuration file (.dqdoctor.yml) + custom SQL rules
+- [x] PII detection, FK discovery, referential integrity
+- [x] Column correlation, profile drift, data lineage
+- [x] Export: dbt / GX / Soda CL / Deequ / Markdown
+- [x] Dirty demo data + Web dashboard + Airflow operator
+- [x] PyPI published (v0.4.0)
 - [ ] Demo GIF
-- [ ] PostgreSQL / MySQL real integration testing
 
 ## License
 
