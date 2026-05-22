@@ -31,3 +31,158 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v
+
+  integration:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dqtest
+          POSTGRES_PASSWORD: dqtest
+          POSTGRES_DB: dqtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: dqtest
+          MYSQL_DATABASE: dqtest
+          MYSQL_USER: dqtest
+          MYSQL_PASSWORD: dqtest
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,sql]"
+
+      - name: Setup test data in PostgreSQL
+        env:
+          PGHOST: 127.0.0.1
+          PGUSER: dqtest
+          PGPASSWORD: dqtest
+          PGDATABASE: dqtest
+        run: |
+          python -c "
+          import psycopg2
+          con = psycopg2.connect(host='127.0.0.1', user='dqtest', password='dqtest', dbname='dqtest')
+          cur = con.cursor()
+          cur.execute('''
+            CREATE TABLE orders (
+              order_id INTEGER PRIMARY KEY,
+              user_id INTEGER NOT NULL,
+              status VARCHAR(20) NOT NULL,
+              total_amount DECIMAL(10,2) NOT NULL,
+              created_at TIMESTAMP DEFAULT NOW()
+            );
+            INSERT INTO orders (order_id, user_id, status, total_amount) VALUES
+              (1, 101, 'pending', 100.00),
+              (2, 102, 'shipped', 200.00),
+              (3, 103, 'delivered', 300.00);
+          ''')
+          con.commit()
+          con.close()
+          "
+
+      - name: Setup test data in MySQL
+        run: |
+          python -c "
+          import pymysql
+          con = pymysql.connect(host='127.0.0.1', user='dqtest', password='dqtest', database='dqtest')
+          cur = con.cursor()
+          cur.execute('''
+            CREATE TABLE orders (
+              order_id INTEGER PRIMARY KEY,
+              user_id INTEGER NOT NULL,
+              status VARCHAR(20) NOT NULL,
+              total_amount DECIMAL(10,2) NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          ''')
+          cur.execute('''INSERT INTO orders (order_id, user_id, status, total_amount) VALUES
+            (1, 101, 'pending', 100.00),
+            (2, 102, 'shipped', 200.00),
+            (3, 103, 'delivered', 300.00)''')
+          con.commit()
+          con.close()
+          "
+
+      - name: Test PostgreSQL integration
+        run: |
+          python -c "
+          from dqdoctor.connectors.auto import get_connection, list_tables, get_table_columns
+          from dqdoctor.profiler import profile_table
+          from dqdoctor.rule_engine import generate_rules
+          from dqdoctor.validator import validate_rules
+
+          db = 'postgresql://dqtest:dqtest@127.0.0.1/dqtest'
+          print('=== PostgreSQL tables ===')
+          con = get_connection(db)
+          tables = list_tables(con)
+          print(tables)
+          con.close()
+
+          print('=== PostgreSQL profile ===')
+          profile = profile_table(db, 'orders')
+          print(f'Rows: {profile.row_count}, Cols: {len(profile.columns)}')
+
+          print('=== PostgreSQL check ===')
+          rules = generate_rules(profile)
+          results = validate_rules(db, 'orders', rules)
+          passed = sum(1 for r in results if r.passed)
+          failed = sum(1 for r in results if not r.passed)
+          print(f'Passed: {passed}, Failed: {failed}')
+          assert failed == 0, f'Expected 0 failures, got {failed}'
+          print('PostgreSQL integration PASSED')
+          "
+
+      - name: Test MySQL integration
+        run: |
+          python -c "
+          from dqdoctor.connectors.auto import get_connection, list_tables
+          from dqdoctor.profiler import profile_table
+          from dqdoctor.rule_engine import generate_rules
+          from dqdoctor.validator import validate_rules
+
+          db = 'mysql+pymysql://dqtest:dqtest@127.0.0.1/dqtest'
+          print('=== MySQL tables ===')
+          con = get_connection(db)
+          tables = list_tables(con)
+          print(tables)
+          con.close()
+
+          print('=== MySQL profile ===')
+          profile = profile_table(db, 'orders')
+          print(f'Rows: {profile.row_count}, Cols: {len(profile.columns)}')
+
+          print('=== MySQL check ===')
+          rules = generate_rules(profile)
+          results = validate_rules(db, 'orders', rules)
+          passed = sum(1 for r in results if r.passed)
+          failed = sum(1 for r in results if not r.passed)
+          print(f'Passed: {passed}, Failed: {failed}')
+          assert failed == 0, f'Expected 0 failures, got {failed}'
+          print('MySQL integration PASSED')
+          "
