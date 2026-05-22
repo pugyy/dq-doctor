@@ -5,21 +5,39 @@ build-backend = "hatchling.build"
 [project]
 name = "dq-doctor"
 version = "0.7.1"
-description = "A lightweight data quality checkup CLI — no YAML, no rule syntax to remember."
+description = "One command to profile tables, generate data quality checks, and catch dirty data."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "pugyy" }]
-keywords = ["data-quality", "cli", "duckdb", "profiling", "validation"]
+keywords = [
+    "data-quality",
+    "data-profiling",
+    "cli",
+    "duckdb",
+    "profiling",
+    "validation",
+    "dbt",
+    "great-expectations",
+    "soda",
+    "pii-detection",
+    "referential-integrity",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "Topic :: Database",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
     "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Environment :: Console",
+    "Typing :: Typed",
 ]
 dependencies = [
     "typer>=0.12",
@@ -32,6 +50,9 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/pugyy/dq-doctor"
+Repository = "https://github.com/pugyy/dq-doctor"
+Issues = "https://github.com/pugyy/dq-doctor/issues"
+Changelog = "https://github.com/pugyy/dq-doctor#changelog"
 
 [project.scripts]
 dqdoctor = "dqdoctor.cli:app"
