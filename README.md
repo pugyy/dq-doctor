@@ -2,6 +2,10 @@
 
 One command to profile tables, generate data quality checks, and catch dirty data.
 
+一行命令，完成数据质量体检。
+
+**[English](#highlights)** | **[中文](#核心功能)**
+
 [![PyPI](https://img.shields.io/pypi/v/dq-doctor)](https://pypi.org/project/dq-doctor/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/dq-doctor/)
 [![Tests](https://img.shields.io/badge/tests-109%20passed-green)](https://github.com/pugyy/dq-doctor)
@@ -155,18 +159,6 @@ dqdoctor check --db demo.duckdb --table orders --ci --max-failures 0
 
 Exits with code 1 when rule failures or referential integrity issues exceed threshold.
 
-## Experimental Features
-
-| Feature | Status |
-|---------|--------|
-| LLM rule suggestions | Quality depends on model |
-| Column correlation | Pearson only |
-| Data lineage | Heuristic-based (FK + correlation) |
-| Soda CL / Deequ export | Basic metric mapping |
-| Web dashboard | Read-only |
-
-Details: [docs/limitations.md](docs/limitations.md)
-
 ## Documentation
 
 - [Quick Start](docs/quickstart.md)
@@ -192,19 +184,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
-## 中文说明
+## 核心功能
 
 dq-doctor 是一个轻量级数据质量体检 CLI 工具。一行命令完成表结构分析、质量规则生成、校验和 HTML 报告。
-
-### 30 秒体验
-
-```bash
-pip install dq-doctor
-dqdoctor demo --dirty
-dqdoctor check --db dirty.duckdb --all-tables --out report.html
-```
-
-### 核心功能
 
 - **零配置** — 一行命令完成 profiling + 规则生成 + 校验 + HTML 报告
 - **质量评分** — 每张表 0-100 分，综合规则通过率、PII、参照完整性
@@ -216,6 +198,14 @@ dqdoctor check --db dirty.duckdb --all-tables --out report.html
 - **自定义 SQL 规则** — 编写自己的校验查询
 - **可编辑规则** — `dqdoctor rules-init` 生成 YAML，支持禁用、改 severity、覆盖参数
 - **LLM 建议** — 可选 AI 规则生成（实验性）
+
+### 30 秒体验
+
+```bash
+pip install dq-doctor
+dqdoctor demo --dirty
+dqdoctor check --db dirty.duckdb --all-tables --out report.html
+```
 
 ### 配置文件
 
@@ -245,18 +235,60 @@ dqdoctor check --db demo.duckdb --table orders --ci --max-failures 0
 
 ---
 
-## Roadmap
+## Changelog
 
-- [x] DuckDB + PostgreSQL / MySQL
-- [x] PII detection, FK discovery, referential integrity
-- [x] Configuration file + custom SQL rules
-- [x] Quality Score + integrated report
-- [x] Editable rules file (`dqdoctor rules-init`)
-- [x] Profile drift comparison + data lineage
-- [x] 5 export formats
-- [x] Dirty demo + web dashboard + Airflow operator
-- [x] PyPI published (v0.7.1)
-- [ ] Demo GIF
+### v0.7.1
+- Fix: `--ci` now counts referential integrity failures
+- Fix: Quality Score display (extra `]` removed)
+- Fix: `--verbose-rules` shows config disable/severity overrides
+- Tests: 109 passing
+
+### v0.7.0
+- Quality Score (0-100) per table in CLI and HTML report
+- PII detection and referential integrity integrated into HTML report
+- New `--verbose-rules` flag to show rule sources and overrides
+
+### v0.6.3
+- Custom rules now override auto rules (params/severity/disable)
+- `rules-init` Decimal serialization fixed
+- doctor command: optional deps no longer trigger core failure
+
+### v0.6.0
+- README redesigned with badges and clear first screen
+- Full documentation split into `docs/` (8 pages)
+- Examples: dirty-demo, postgres-demo (docker-compose), mysql-demo (docker-compose)
+- CONTRIBUTING.md added
+- `dqdoctor doctor` health check command
+- `dqdoctor rules-init` editable rules file
+- `--save-profile` for drift comparison workflow
+
+### v0.5.0
+- Usability release: docs, examples, doctor, rules-init, save-profile
+
+### v0.4.0
+- `.dqdoctor.yml` configuration file
+- Custom SQL rules
+- Referential integrity checker
+- GitHub Actions PG/MySQL CI
+- Dirty demo dataset
+
+### v0.3.0
+- PII detection, FK discovery, column correlation, data lineage
+- Profile drift comparison
+- Soda CL and Deequ export
+- Flask dashboard, Airflow operator
+
+### v0.2.0
+- ConnectionWrapper (DuckDB/PG/MySQL)
+- dbt native format export
+- LLM-enhanced rules
+- 66 tests
+
+### v0.1.0
+- Initial release: 5 heuristic rules, HTML reports, export to dbt/GX/Markdown
+- 53 tests, PyPI published
+
+---
 
 ## License
 
