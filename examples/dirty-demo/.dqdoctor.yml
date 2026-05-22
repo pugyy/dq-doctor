@@ -1,0 +1,10 @@
+db: dirty.duckdb
+
+tables:
+  dirty_orders:
+    freshness:
+      created_at:
+        max_age_hours: 48
+    severity:
+      order_id:not_null: high
+      total_amount:range: high
