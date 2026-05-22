@@ -105,15 +105,19 @@ DuckDB (first-class) / PostgreSQL / MySQL
 ## Example Output
 
 ```
-dirty_orders: Rules 14  Passed 7  Failed 7  Suggested 0
+dirty_orders: Rules 13  Passed 12  Failed 1  Suggested 0
   PASS not_null on order_id: All 20 rows have non-null 'order_id'.
   FAIL not_null on user_id: 3 rows have null 'user_id'.
-  FAIL range on total_amount: 4 values outside [-200.00, 99999.99].
-  FAIL accepted_values on status: 2 values not in accepted set.
-  FAIL freshness on created_at: Latest value is 168.0h old (max 24h).
+  PASS unique on order_id: All 20 values are unique.
+  PASS range on total_amount: All 20 values within [-200.00, 99999.99].
+  PASS accepted_values on status: All non-null values in accepted set.
+  PASS freshness on created_at: Latest value is 1.0h old (max 24h).
+
   PII detected:
     email in column 'email'
     phone_cn in column 'phone'
+
+Use dqdoctor refint to find orphan rows (e.g. user_id=99 references a non-existent user).
 ```
 
 ## Supported Rules

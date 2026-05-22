@@ -489,6 +489,18 @@ def rules_init(
     profile_result = profile_table(db, table)
     rules = generate_rules(profile_result)
 
+    def _serialize_params(params: dict) -> dict:
+        from decimal import Decimal
+        result = {}
+        for k, v in params.items():
+            if isinstance(v, Decimal):
+                result[k] = float(v)
+            elif isinstance(v, float):
+                result[k] = round(v, 4)
+            else:
+                result[k] = v
+        return result
+
     rules_data = {
         "table": table,
         "db": db,
@@ -497,7 +509,7 @@ def rules_init(
                 "rule_id": r.rule_id,
                 "rule_type": r.rule_type,
                 "column": r.column,
-                "params": r.params,
+                "params": _serialize_params(r.params),
                 "confidence": round(r.confidence, 2),
                 "severity": r.severity,
                 "reason": r.reason,
@@ -554,9 +566,14 @@ def doctor() -> None:
 
     config_path = Path(".dqdoctor.yml")
     config_ok = config_path.exists()
-    config_msg = str(config_path.resolve()) if config_ok else "not found (run dqdoctor init)"
+    config_msg = (
+        str(config_path.resolve())
+        if config_ok
+        else "not found (optional, run dqdoctor init)"
+    )
     checks.append(("Config file", config_ok, config_msg))
 
+    non_core = {"SQLAlchemy", "psycopg2", "pymysql", "OpenAI", "Flask", "Config file"}
     optional = [
         ("SQLAlchemy", "sqlalchemy", "sql"),
         ("psycopg2", "psycopg2", "sql"),
@@ -570,27 +587,30 @@ def doctor() -> None:
             ver = getattr(m, "__version__", "installed")
             checks.append((f"{label} [{extra}]", True, ver))
         except ImportError:
-            checks.append((
-                f"{label} [{extra}]", False,
-                f"not installed (pip install dq-doctor[{extra}])",
-            ))
+            install_hint = f"pip install dq-doctor[{extra}]"
+            checks.append((f"{label} [{extra}]", False, f"not installed ({install_hint})"))
 
-    all_ok = True
+    core_ok = True
     table = Table()
     table.add_column("Check", style="bold")
     table.add_column("Status")
     table.add_column("Detail")
     for name, ok, detail in checks:
-        icon = "[green]OK[/green]" if ok else "[red]MISS[/red]"
-        if not ok and name not in [x[0] for x in optional]:
-            all_ok = False
+        icon = (
+            "[green]OK[/green]" if ok
+            else "[yellow]--[/yellow]" if name in non_core
+            else "[red]MISS[/red]"
+        )
+        if not ok and name not in non_core:
+            core_ok = False
         table.add_row(name, icon, detail)
     console.print(table)
 
-    if all_ok:
+    if core_ok:
         console.print("\n[green]All core checks passed.[/green]")
     else:
-        console.print("\n[red]Some core checks failed. Try: pip install --upgrade dq-doctor[/red]")
+        console.print("\n[red]Some core checks failed.[/red]")
+        console.print("[dim]Try: pip install --upgrade dq-doctor[/dim]")
 
 
 @app.command()
