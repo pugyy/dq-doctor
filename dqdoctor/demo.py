@@ -15,7 +15,7 @@ DEFAULT_DIRTY_PATH = EXAMPLES_DIR / "ecommerce" / "dirty.duckdb"
 
 
 def create_demo_db(db_path: "str | Path | None" = None) -> Path:
-    db_path = Path(db_path) if db_path else DEFAULT_DB_PATH
+    db_path = Path(db_path) if db_path else Path("demo.duckdb")
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     if db_path.exists():
@@ -33,7 +33,7 @@ def create_demo_db(db_path: "str | Path | None" = None) -> Path:
 
 
 def create_dirty_db(db_path: "str | Path | None" = None) -> Path:
-    db_path = Path(db_path) if db_path else DEFAULT_DIRTY_PATH
+    db_path = Path(db_path) if db_path else Path("dirty.duckdb")
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     if db_path.exists():

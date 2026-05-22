@@ -27,6 +27,8 @@ def load_custom_rules(path: "str | Path") -> list[RuleSuggestion]:
 
     rules: list[RuleSuggestion] = []
     for i, raw in enumerate(raw_rules):
+        if not raw.get("enabled", True):
+            continue
         rules.append(RuleSuggestion(
             rule_id=raw.get("rule_id", f"custom.{i}"),
             rule_type=raw.get("rule_type", "unknown"),

@@ -96,6 +96,36 @@ def test_rules_init_command(demo_db: Path):
     content = out_rules.read_text(encoding="utf-8")
     assert "rules:" in content
     assert "not_null" in content
+    assert "!!python" not in content
+
+
+def test_rules_init_check_roundtrip(demo_db: Path):
+    out_rules = demo_db.parent / "rules.yml"
+    runner.invoke(app, [
+        "rules-init", "--db", str(demo_db),
+        "--table", "orders", "--out", str(out_rules),
+    ])
+    out_html = demo_db.parent / "report.html"
+    result = runner.invoke(app, [
+        "check", "--db", str(demo_db),
+        "--table", "orders",
+        "--rules", str(out_rules),
+        "--out", str(out_html),
+    ])
+    assert result.exit_code == 0
+    assert "Loaded" in result.stdout or "PASS" in result.stdout
+
+
+def test_demo_dirty_default_path(tmp_path: Path):
+    import os
+    prev = os.getcwd()
+    try:
+        os.chdir(str(tmp_path))
+        result = runner.invoke(app, ["demo", "--dirty"])
+        assert result.exit_code == 0
+        assert (tmp_path / "dirty.duckdb").exists()
+    finally:
+        os.chdir(prev)
 
 
 def test_check_save_profile(demo_db: Path, tmp_path: Path):
