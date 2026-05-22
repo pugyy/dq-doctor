@@ -50,6 +50,22 @@ class ValidationResult(BaseModel):
     message: str = ""
 
 
+class PIIFinding(BaseModel):
+    column: str
+    pii_type: str
+    sample_count: int = 0
+
+
+class RefIntegrityIssue(BaseModel):
+    from_table: str
+    from_column: str
+    to_table: str
+    to_column: str
+    orphan_rows: int
+    total_rows: int
+    sample_orphans: list = []
+
+
 class ReportResult(BaseModel):
     db_path: str
     table_name: str
@@ -59,7 +75,10 @@ class ReportResult(BaseModel):
     passed_rules: int
     failed_rules: int
     suggested_rules: int = 0
+    quality_score: int = 100
     profile: ProfileResult
     rules: list[RuleSuggestion]
     results: list[ValidationResult]
+    pii_findings: list[PIIFinding] = []
+    referential_integrity: list[RefIntegrityIssue] = []
     generated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
