@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dqdemo
+      POSTGRES_USER: dquser
+      POSTGRES_PASSWORD: dqpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./seed.sql:/docker-entrypoint-initdb.d/seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dquser -d dqdemo"]
+      interval: 5s
+      retries: 5

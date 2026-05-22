@@ -14,7 +14,6 @@ from dqdoctor.exporters.deequ import save_deequ
 from dqdoctor.exporters.gx import save_gx_suite
 from dqdoctor.exporters.markdown import save_markdown
 from dqdoctor.exporters.soda import save_soda_cl
-from dqdoctor.models import ProfileResult
 from dqdoctor.profiler import profile_table
 from dqdoctor.reporter import build_report, save_html
 from dqdoctor.rule_engine import generate_rules
@@ -72,9 +71,9 @@ def tables(
     console.print(f"[dim]{len(table_list)} table(s)[/dim]")
 
 
-def _print_profile(profile: ProfileResult) -> None:
+def _print_profile(profile_result) -> None:
     table = Table(
-        title=f"Profile: {profile.table_name} ({profile.row_count} rows)"
+        title=f"Profile: {profile_result.table_name} ({profile_result.row_count} rows)"
     )
     table.add_column("Column", style="bold")
     table.add_column("Type")
@@ -85,7 +84,7 @@ def _print_profile(profile: ProfileResult) -> None:
     table.add_column("Semantic")
     table.add_column("PII")
 
-    for col in profile.columns:
+    for col in profile_result.columns:
         pii_label = f"[red]{col.pii_type}[/red]" if col.pii_type else "-"
         table.add_row(
             col.name,
@@ -100,6 +99,25 @@ def _print_profile(profile: ProfileResult) -> None:
     console.print(table)
 
 
+@app.command()
+def profile(
+    db: str = typer.Option(..., "--db", help="Path to database"),
+    table: str = typer.Option(..., "--table", help="Table name to profile"),
+    out: Optional[str] = typer.Option(
+        None, "--out", help="Output JSON path (saves profile for drift comparison)"
+    ),
+) -> None:
+    from dqdoctor.drift import save_profile
+
+    profile_result = profile_table(db, table)
+    _print_profile(profile_result)
+
+    if out:
+        out_path = Path(out)
+        save_profile(profile_result, out_path)
+        console.print(f"[green]Profile saved to:[/green] {out_path}")
+
+
 def _run_check(
     db: str,
     table: str,
@@ -111,11 +129,24 @@ def _run_check(
     llm_model: str = "deepseek-chat",
     rules_file: Optional[str] = None,
     config: Any = None,
+    save_profile_dir: Optional[str] = None,
 ) -> int:
     from dqdoctor.config import apply_config_to_rules, get_sql_rules
 
     with console.status("[bold blue]Profiling table..."):
         profile_result = profile_table(db, table)
+
+    if save_profile_dir:
+        from datetime import datetime
+
+        from dqdoctor.drift import save_profile
+
+        pdir = Path(save_profile_dir)
+        pdir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ppath = pdir / f"{table}_{ts}.json"
+        save_profile(profile_result, ppath)
+        console.print(f"[dim]Profile saved to {ppath}[/dim]")
 
     with console.status("[bold blue]Generating rules..."):
         rules = generate_rules(
@@ -195,26 +226,6 @@ def _run_check(
 
 
 @app.command()
-def profile(
-    db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
-    table: str = typer.Option(..., "--table", help="Table name to profile"),
-    out: Optional[str] = typer.Option(
-        None, "--out", help="Output JSON path"
-    ),
-) -> None:
-    profile_result = profile_table(db, table)
-    _print_profile(profile_result)
-
-    if out:
-        out_path = Path(out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(
-            profile_result.model_dump_json(indent=2), encoding="utf-8"
-        )
-        console.print(f"[green]Profile saved to:[/green] {out_path}")
-
-
-@app.command()
 def check(
     db: Optional[str] = typer.Option(
         None, "--db", help="Path to database (or set in .dqdoctor.yml)"
@@ -249,6 +260,10 @@ def check(
     config: Optional[str] = typer.Option(
         None, "--config", help="Path to .dqdoctor.yml config file"
     ),
+    save_profile: Optional[str] = typer.Option(
+        None, "--save-profile",
+        help="Directory to save profile JSON for drift comparison"
+    ),
 ) -> None:
     from dqdoctor.config import load_config
 
@@ -273,7 +288,7 @@ def check(
                 effective_db, t, table_out, ci=ci, max_failures=max_failures,
                 llm_key=llm_key, llm_base_url=llm_base_url,
                 llm_model=llm_model, rules_file=rules,
-                config=dq_config,
+                config=dq_config, save_profile_dir=save_profile,
             )
             total_failures += failures
         if ci and total_failures > 0:
@@ -292,7 +307,7 @@ def check(
             effective_db, table, out, ci=ci, max_failures=max_failures,
             llm_key=llm_key, llm_base_url=llm_base_url,
             llm_model=llm_model, rules_file=rules,
-            config=dq_config,
+            config=dq_config, save_profile_dir=save_profile,
         )
         if ci and failures > 0:
             raise typer.Exit(1)
@@ -461,6 +476,121 @@ def refint(
         if r.sample_orphans:
             samples = ", ".join(str(v) for v in r.sample_orphans[:5])
             console.print(f"       Sample orphans: [{samples}]")
+
+
+@app.command("rules-init")
+def rules_init(
+    db: str = typer.Option(..., "--db", help="Path to database"),
+    table: str = typer.Option(..., "--table", help="Table name"),
+    out: str = typer.Option("rules.yml", "--out", help="Output rules file path"),
+) -> None:
+    import yaml as _yaml
+
+    profile_result = profile_table(db, table)
+    rules = generate_rules(profile_result)
+
+    rules_data = {
+        "table": table,
+        "db": db,
+        "rules": [
+            {
+                "rule_id": r.rule_id,
+                "rule_type": r.rule_type,
+                "column": r.column,
+                "params": r.params,
+                "confidence": round(r.confidence, 2),
+                "severity": r.severity,
+                "reason": r.reason,
+                "enabled": True,
+            }
+            for r in rules
+        ],
+    }
+
+    out_path = Path(out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        _yaml.dump(rules_data, default_flow_style=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    console.print(f"[green]Generated {len(rules)} rules for '{table}'[/green]")
+    console.print(f"[green]Saved to:[/green] {out_path}")
+    console.print("[dim]Edit the file to enable/disable rules, change severity, then:")
+    console.print(f"[dim]  dqdoctor check --db {db} --table {table} --rules {out}[/dim]")
+
+
+@app.command()
+def doctor() -> None:
+    import importlib
+    import sys
+
+    console.print("[bold]dq-doctor health check[/bold]\n")
+
+    checks: list[tuple[str, bool, str]] = []
+
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    py_ok = sys.version_info >= (3, 9)
+    checks.append(("Python version", py_ok, f"{py_ver} {'OK' if py_ok else 'FAIL: need 3.9+'}"))
+
+    pkg_version = "unknown"
+    try:
+        from dqdoctor import __version__
+        pkg_version = __version__
+    except Exception:
+        pass
+    checks.append(("dq-doctor version", True, pkg_version))
+
+    try:
+        import duckdb
+        checks.append(("DuckDB", True, duckdb.__version__))
+    except ImportError:
+        checks.append(("DuckDB", False, "not installed"))
+
+    template_ok = (Path(__file__).parent / "templates" / "report.html").exists()
+    checks.append(("Report template", template_ok, "OK" if template_ok else "MISSING"))
+
+    seed_ok = (Path(__file__).parent / "data" / "seed.sql").exists()
+    checks.append(("Demo data (seed.sql)", seed_ok, "OK" if seed_ok else "MISSING"))
+
+    config_path = Path(".dqdoctor.yml")
+    config_ok = config_path.exists()
+    config_msg = str(config_path.resolve()) if config_ok else "not found (run dqdoctor init)"
+    checks.append(("Config file", config_ok, config_msg))
+
+    optional = [
+        ("SQLAlchemy", "sqlalchemy", "sql"),
+        ("psycopg2", "psycopg2", "sql"),
+        ("pymysql", "pymysql", "sql"),
+        ("OpenAI", "openai", "llm"),
+        ("Flask", "flask", "dashboard"),
+    ]
+    for label, mod_name, extra in optional:
+        try:
+            m = importlib.import_module(mod_name)
+            ver = getattr(m, "__version__", "installed")
+            checks.append((f"{label} [{extra}]", True, ver))
+        except ImportError:
+            checks.append((
+                f"{label} [{extra}]", False,
+                f"not installed (pip install dq-doctor[{extra}])",
+            ))
+
+    all_ok = True
+    table = Table()
+    table.add_column("Check", style="bold")
+    table.add_column("Status")
+    table.add_column("Detail")
+    for name, ok, detail in checks:
+        icon = "[green]OK[/green]" if ok else "[red]MISS[/red]"
+        if not ok and name not in [x[0] for x in optional]:
+            all_ok = False
+        table.add_row(name, icon, detail)
+    console.print(table)
+
+    if all_ok:
+        console.print("\n[green]All core checks passed.[/green]")
+    else:
+        console.print("\n[red]Some core checks failed. Try: pip install --upgrade dq-doctor[/red]")
 
 
 @app.command()
