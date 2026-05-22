@@ -135,6 +135,7 @@ def _run_check(
     rules_file: Optional[str] = None,
     config: Any = None,
     save_profile_dir: Optional[str] = None,
+    verbose_rules: bool = False,
 ) -> int:
     from dqdoctor.config import apply_config_to_rules, get_sql_rules
 
@@ -203,18 +204,51 @@ def _run_check(
                     source="config",
                 ))
 
-    report = build_report(profile_result, rules, results)
+    from dqdoctor.models import PIIFinding, RefIntegrityIssue
+
+    pii_findings = [
+        PIIFinding(column=c.name, pii_type=c.pii_type, sample_count=0)
+        for c in profile_result.columns if c.pii_type
+    ]
+
+    refint_issues = []
+    with console.status("[bold blue]Checking referential integrity..."):
+        try:
+            from dqdoctor.models import RefIntegrityIssue
+            from dqdoctor.ref_integrity import check_referential_integrity
+
+            ri_results = check_referential_integrity(db)
+            for ri in ri_results:
+                if ri.from_table == table or ri.to_table == table:
+                    refint_issues.append(RefIntegrityIssue(
+                        from_table=ri.from_table,
+                        from_column=ri.from_column,
+                        to_table=ri.to_table,
+                        to_column=ri.to_column,
+                        orphan_rows=ri.orphan_rows,
+                        total_rows=ri.total_rows,
+                        sample_orphans=ri.sample_orphans,
+                    ))
+        except Exception:
+            pass
+
+    report = build_report(
+        profile_result, rules, results,
+        pii_findings=pii_findings,
+        refint_issues=refint_issues,
+    )
     report_path = save_html(report, out)
 
-    pii_cols = [c for c in profile_result.columns if c.pii_type]
-    if pii_cols:
-        console.print("[yellow]PII detected:[/yellow]")
-        for c in pii_cols:
-            console.print(f"  [red]{c.pii_type}[/red] in column '{c.name}'")
+    score_color = (
+        "[green]" if report.quality_score >= 80
+        else "[yellow]" if report.quality_score >= 50
+        else "[red]"
+    )
 
     console.print()
     console.print(
         f"[bold]{table}[/bold]: "
+        f"Score {score_color}{report.quality_score}/100[/{score_color[1:]}]  "
         f"Rules {report.total_rules}  "
         f"[green]Passed {report.passed_rules}[/green]  "
         f"[red]Failed {report.failed_rules}[/red]  "
@@ -227,6 +261,34 @@ def _run_check(
         else:
             icon = "[green]PASS[/green]" if r.passed else "[red]FAIL[/red]"
         console.print(f"  {icon} {r.rule_type} on {r.column}: {r.message}")
+
+    if verbose_rules:
+        console.print("[dim]Rule sources:[/dim]")
+        for r in rules:
+            source_label = r.source if r.source != "heuristic" else "auto"
+            console.print(
+                f"  [dim]{r.rule_type}.{r.column}: {source_label} "
+                f"(severity={r.severity})[/dim]"
+            )
+        if rules_file:
+            disabled = load_disabled_keys(rules_file)
+            for rk in disabled:
+                console.print(
+                    f"  [dim]{rk[0]}.{rk[1]}: disabled by {rules_file}[/dim]"
+                )
+
+    if pii_findings:
+        console.print("[yellow]PII detected:[/yellow]")
+        for p in pii_findings:
+            console.print(f"  [red]{p.pii_type}[/red] in column '{p.column}'")
+
+    for ri in refint_issues:
+        if ri.orphan_rows > 0:
+            console.print(
+                f"  [red]ORPHAN[/red] {ri.from_table}.{ri.from_column} -> "
+                f"{ri.to_table}.{ri.to_column}: "
+                f"{ri.orphan_rows}/{ri.total_rows} orphans"
+            )
 
     console.print(f"[dim]Report: {report_path}[/dim]")
     console.print()
@@ -275,6 +337,10 @@ def check(
         None, "--save-profile",
         help="Directory to save profile JSON for drift comparison"
     ),
+    verbose_rules: bool = typer.Option(
+        False, "--verbose-rules",
+        help="Show rule source and override details"
+    ),
 ) -> None:
     from dqdoctor.config import load_config
 
@@ -300,6 +366,7 @@ def check(
                 llm_key=llm_key, llm_base_url=llm_base_url,
                 llm_model=llm_model, rules_file=rules,
                 config=dq_config, save_profile_dir=save_profile,
+                verbose_rules=verbose_rules,
             )
             total_failures += failures
         if ci and total_failures > 0:
@@ -319,6 +386,7 @@ def check(
             llm_key=llm_key, llm_base_url=llm_base_url,
             llm_model=llm_model, rules_file=rules,
             config=dq_config, save_profile_dir=save_profile,
+            verbose_rules=verbose_rules,
         )
         if ci and failures > 0:
             raise typer.Exit(1)
