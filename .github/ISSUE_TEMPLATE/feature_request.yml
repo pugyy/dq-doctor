@@ -1,0 +1,45 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Please describe your idea below.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Use Case
+      description: What problem does this feature solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How would you like it to work?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of dq-doctor does this relate to?
+      options:
+        - CLI commands
+        - Rule engine
+        - Profiling
+        - HTML report
+        - Exporters (dbt/GX/Soda/Deequ/Markdown)
+        - Database connectors
+        - PII detection
+        - LLM integration
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Any links, examples, or screenshots.
