@@ -55,10 +55,16 @@ dashboard = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["dqdoctor"]
-artifacts = ["dqdoctor/templates/*.html"]
+artifacts = [
+    "dqdoctor/templates/*.html",
+    "dqdoctor/data/*.sql",
+]
 
 [tool.hatch.build.targets.sdist]
-artifacts = ["dqdoctor/templates/*.html"]
+artifacts = [
+    "dqdoctor/templates/*.html",
+    "dqdoctor/data/*.sql",
+]
 
 [tool.ruff]
 target-version = "py39"
