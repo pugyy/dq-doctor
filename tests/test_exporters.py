@@ -4,8 +4,10 @@ import pytest
 
 from dqdoctor.demo import create_demo_db
 from dqdoctor.exporters.dbt import export_dbt_schema, save_dbt_schema
+from dqdoctor.exporters.deequ import export_deequ, save_deequ
 from dqdoctor.exporters.gx import export_gx_suite, save_gx_suite
 from dqdoctor.exporters.markdown import export_markdown, save_markdown
+from dqdoctor.exporters.soda import export_soda_cl, save_soda_cl
 from dqdoctor.profiler import profile_table
 from dqdoctor.rule_engine import generate_rules
 
@@ -147,3 +149,41 @@ def test_save_markdown(profile_and_rules, tmp_path: Path):
     assert saved.exists()
     content = saved.read_text(encoding="utf-8")
     assert "order_id" in content
+
+
+def test_export_soda_cl(profile_and_rules):
+    profile, rules = profile_and_rules
+    content = export_soda_cl(profile, rules)
+    assert f"checks for {profile.table_name}:" in content
+    assert "missing_count" in content
+    assert "duplicate_count" in content
+
+
+def test_save_soda_cl(profile_and_rules, tmp_path: Path):
+    profile, rules = profile_and_rules
+    out = tmp_path / "checks.yml"
+    saved = save_soda_cl(profile, rules, out)
+    assert saved.exists()
+    content = saved.read_text(encoding="utf-8")
+    assert f"checks for {profile.table_name}:" in content
+
+
+def test_export_deequ(profile_and_rules):
+    import json
+
+    profile, rules = profile_and_rules
+    content = export_deequ(profile, rules)
+    parsed = json.loads(content)
+    assert parsed["dataset"] == profile.table_name
+    assert len(parsed["checks"]) > 0
+    check_types = [c["check"] for c in parsed["checks"]]
+    assert "isComplete" in check_types
+
+
+def test_save_deequ(profile_and_rules, tmp_path: Path):
+    profile, rules = profile_and_rules
+    out = tmp_path / "checks.json"
+    saved = save_deequ(profile, rules, out)
+    assert saved.exists()
+    content = saved.read_text(encoding="utf-8")
+    assert profile.table_name in content
