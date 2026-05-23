@@ -158,7 +158,7 @@ def _validate_freshness(
     if isinstance(max_ts, date) and not isinstance(max_ts, datetime):
         max_ts = datetime(max_ts.year, max_ts.month, max_ts.day)
     if isinstance(max_ts, str):
-        max_ts = datetime.fromisoformat(max_ts)
+        max_ts = datetime.fromisoformat(max_ts.replace("Z", "+00:00"))
 
     now = datetime.now(tz=max_ts.tzinfo) if max_ts.tzinfo else datetime.now()
     age = now - max_ts
