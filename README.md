@@ -7,6 +7,7 @@ One command to profile tables, generate data quality checks, and catch dirty dat
 
 [![PyPI](https://img.shields.io/pypi/v/dq-doctor)](https://pypi.org/project/dq-doctor/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/dq-doctor/)
+[![CI](https://github.com/pugyy/dq-doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/pugyy/dq-doctor/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-109%20passed-green)](https://github.com/pugyy/dq-doctor)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](https://github.com/pugyy/dq-doctor/blob/main/LICENSE)
 
