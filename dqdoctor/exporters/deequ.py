@@ -26,31 +26,39 @@ def export_deequ(
     for rule in rules:
         col = rule.column
         if rule.rule_type == "not_null":
-            checks.append({
-                "check": "isComplete",
-                "column": col,
-            })
+            checks.append(
+                {
+                    "check": "isComplete",
+                    "column": col,
+                }
+            )
         elif rule.rule_type == "unique":
-            checks.append({
-                "check": "isUnique",
-                "column": col,
-            })
+            checks.append(
+                {
+                    "check": "isUnique",
+                    "column": col,
+                }
+            )
         elif rule.rule_type == "accepted_values":
-            checks.append({
-                "check": "isContainedIn",
-                "column": col,
-                "values": _sanitize(rule.params.get("values", [])),
-            })
+            checks.append(
+                {
+                    "check": "isContainedIn",
+                    "column": col,
+                    "values": _sanitize(rule.params.get("values", [])),
+                }
+            )
         elif rule.rule_type == "range":
             min_v = _sanitize(rule.params.get("min"))
             max_v = _sanitize(rule.params.get("max"))
             if min_v is not None and max_v is not None:
-                checks.append({
-                    "check": "isBetween",
-                    "column": col,
-                    "min": min_v,
-                    "max": max_v,
-                })
+                checks.append(
+                    {
+                        "check": "isBetween",
+                        "column": col,
+                        "min": min_v,
+                        "max": max_v,
+                    }
+                )
 
     suite = {
         "dataset": profile.table_name,

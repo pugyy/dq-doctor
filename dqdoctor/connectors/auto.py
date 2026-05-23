@@ -11,11 +11,7 @@ from dqdoctor.connectors.duckdb import (
 
 
 def _is_duckdb(db: str) -> bool:
-    return (
-        db.endswith(".duckdb")
-        or db.endswith(".db")
-        or "://" not in db
-    )
+    return db.endswith(".duckdb") or db.endswith(".db") or "://" not in db
 
 
 def _is_postgresql(db: str) -> bool:
@@ -47,6 +43,7 @@ class ConnectionWrapper:
                 return self._con.execute(sql, params)
             return self._con.execute(sql)
         from sqlalchemy import text
+
         if params is not None:
             if isinstance(params, (list, tuple)):
                 param_dict = {f"p{i}": v for i, v in enumerate(params)}
@@ -94,8 +91,7 @@ def get_connection(db: str, read_only: bool = True) -> ConnectionWrapper:
         from sqlalchemy import create_engine
     except ImportError:
         raise ImportError(
-            "SQLAlchemy is required for PostgreSQL/MySQL. "
-            "Install with: pip install dq-doctor[sql]"
+            "SQLAlchemy is required for PostgreSQL/MySQL. Install with: pip install dq-doctor[sql]"
         )
     connect_args = {}
     if read_only and backend == "postgresql":

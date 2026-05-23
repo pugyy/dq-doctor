@@ -77,9 +77,18 @@ def _generate_accepted_values(col: ColumnProfile) -> RuleSuggestion | None:
 
 
 _NUMERIC_DTYPES = {
-    "TINYINT", "SMALLINT", "INTEGER", "BIGINT",
-    "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT",
-    "FLOAT", "DOUBLE", "DECIMAL", "HUGEINT",
+    "TINYINT",
+    "SMALLINT",
+    "INTEGER",
+    "BIGINT",
+    "UTINYINT",
+    "USMALLINT",
+    "UINTEGER",
+    "UBIGINT",
+    "FLOAT",
+    "DOUBLE",
+    "DECIMAL",
+    "HUGEINT",
 }
 
 
@@ -101,8 +110,7 @@ def _generate_range(col: ColumnProfile) -> RuleSuggestion | None:
         confidence=0.7,
         severity="low",
         reason=(
-            f"Column '{col.name}' is numeric, observed range "
-            f"[{col.min_value}, {col.max_value}]."
+            f"Column '{col.name}' is numeric, observed range [{col.min_value}, {col.max_value}]."
         ),
         source="heuristic",
     )
@@ -119,8 +127,7 @@ def _generate_freshness(col: ColumnProfile) -> RuleSuggestion | None:
         confidence=0.75,
         severity="high",
         reason=(
-            f"Column '{col.name}' is a timestamp field, checking data freshness "
-            f"(max {24}h lag)."
+            f"Column '{col.name}' is a timestamp field, checking data freshness (max {24}h lag)."
         ),
         source="heuristic",
     )
@@ -154,6 +161,7 @@ def generate_rules(
     if llm_key:
         try:
             from dqdoctor.llm.client import suggest_rules_llm
+
             llm_rules = suggest_rules_llm(
                 profile.columns,
                 api_key=llm_key,

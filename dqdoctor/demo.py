@@ -52,6 +52,7 @@ def create_dirty_db(db_path: "str | Path | None" = None) -> Path:
 
 def list_tables(db_path: "str | Path") -> list[str]:
     from dqdoctor.connectors.auto import get_connection
+
     con = get_connection(str(db_path), read_only=True)
     try:
         return _auto_list_tables(con)

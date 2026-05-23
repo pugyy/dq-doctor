@@ -24,7 +24,8 @@ def _is_fk_candidate(col_name: str) -> bool:
 
 
 def discover_foreign_keys(
-    db_path: "str | Path", min_overlap: float = 0.5,
+    db_path: "str | Path",
+    min_overlap: float = 0.5,
 ) -> list[FKRelationship]:
     con = get_connection(str(db_path))
     try:
@@ -56,30 +57,32 @@ def _discover(con: ConnectionWrapper, min_overlap: float) -> list[FKRelationship
                 if tgt_table == src_table:
                     continue
                 tgt_cols = table_col_names[tgt_table]
-                matching = [
-                    tc for tc in tgt_cols
-                    if tc.lower() == src_col.lower()
-                ]
+                matching = [tc for tc in tgt_cols if tc.lower() == src_col.lower()]
                 for tgt_col in matching:
                     is_tgt_pk = tgt_col.lower() == "id"
                     if not is_tgt_pk and "id" in tgt_cols:
-                        non_id_cols = [
-                            tc.lower() for tc in tgt_cols
-                            if tc.lower() != "id"
-                        ]
+                        non_id_cols = [tc.lower() for tc in tgt_cols if tc.lower() != "id"]
                         if src_col.lower() not in non_id_cols:
                             continue
 
-                    pair_key = tuple(sorted([
-                        (src_table, src_col),
-                        (tgt_table, tgt_col),
-                    ]))
+                    pair_key = tuple(
+                        sorted(
+                            [
+                                (src_table, src_col),
+                                (tgt_table, tgt_col),
+                            ]
+                        )
+                    )
                     if pair_key in seen_pairs:
                         continue
                     seen_pairs.add(pair_key)
 
                     overlap = _compute_overlap(
-                        con, src_table, src_col, tgt_table, tgt_col,
+                        con,
+                        src_table,
+                        src_col,
+                        tgt_table,
+                        tgt_col,
                     )
                     if overlap >= min_overlap:
                         if is_tgt_pk:
@@ -90,16 +93,21 @@ def _discover(con: ConnectionWrapper, min_overlap: float) -> list[FKRelationship
                             to_t, to_c = tgt_table, tgt_col
 
                         confidence = _estimate_confidence(
-                            from_c, to_c, overlap, is_tgt_pk,
+                            from_c,
+                            to_c,
+                            overlap,
+                            is_tgt_pk,
                         )
-                        relationships.append(FKRelationship(
-                            from_table=from_t,
-                            from_column=from_c,
-                            to_table=to_t,
-                            to_column=to_c,
-                            overlap_rate=round(overlap, 4),
-                            confidence=round(confidence, 2),
-                        ))
+                        relationships.append(
+                            FKRelationship(
+                                from_table=from_t,
+                                from_column=from_c,
+                                to_table=to_t,
+                                to_column=to_c,
+                                overlap_rate=round(overlap, 4),
+                                confidence=round(confidence, 2),
+                            )
+                        )
 
     relationships.sort(key=lambda r: r.confidence, reverse=True)
     return relationships
@@ -107,17 +115,17 @@ def _discover(con: ConnectionWrapper, min_overlap: float) -> list[FKRelationship
 
 def _compute_overlap(
     con: ConnectionWrapper,
-    src_table: str, src_col: str,
-    tgt_table: str, tgt_col: str,
+    src_table: str,
+    src_col: str,
+    tgt_table: str,
+    tgt_col: str,
 ) -> float:
     qt_s = con.quote(src_table)
     qt_t = con.quote(tgt_table)
     qc_s = con.quote(src_col)
     qc_t = con.quote(tgt_col)
 
-    src_row = con.fetchone(
-        f"SELECT COUNT(DISTINCT {qc_s}) FROM {qt_s} WHERE {qc_s} IS NOT NULL"
-    )
+    src_row = con.fetchone(f"SELECT COUNT(DISTINCT {qc_s}) FROM {qt_s} WHERE {qc_s} IS NOT NULL")
     if src_row is None or src_row[0] == 0:
         return 0.0
 
@@ -133,7 +141,10 @@ def _compute_overlap(
 
 
 def _estimate_confidence(
-    src_col: str, tgt_col: str, overlap: float, is_tgt_pk: bool,
+    src_col: str,
+    tgt_col: str,
+    overlap: float,
+    is_tgt_pk: bool,
 ) -> float:
     score = overlap * 0.6
     if is_tgt_pk:

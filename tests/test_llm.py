@@ -28,9 +28,14 @@ def test_parse_response_empty():
 def test_suggest_rules_llm_no_key():
     from dqdoctor.llm.client import suggest_rules_llm
     from dqdoctor.models import ColumnProfile
+
     col = ColumnProfile(
-        name="id", dtype="INTEGER", null_count=0, null_rate=0.0,
-        distinct_count=10, distinct_rate=1.0,
+        name="id",
+        dtype="INTEGER",
+        null_count=0,
+        null_rate=0.0,
+        distinct_count=10,
+        distinct_rate=1.0,
     )
     result = suggest_rules_llm([col], api_key=None)
     assert result == []

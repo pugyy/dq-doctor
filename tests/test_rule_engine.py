@@ -28,13 +28,13 @@ def test_not_null_for_identifiers(demo_db: Path):
     rules = generate_rules(profile)
     order_id_rules = [r for r in rules if r.column == "order_id"]
     not_null_rule = next(
-        (r for r in order_id_rules if r.rule_type == "not_null"), None,
+        (r for r in order_id_rules if r.rule_type == "not_null"),
+        None,
     )
     assert not_null_rule is not None
     assert not_null_rule.severity == "high"
     assert (
-        "identifier" in not_null_rule.reason.lower()
-        or "zero null" in not_null_rule.reason.lower()
+        "identifier" in not_null_rule.reason.lower() or "zero null" in not_null_rule.reason.lower()
     )
 
 
@@ -52,10 +52,7 @@ def test_unique_for_identifiers(demo_db: Path):
 def test_unique_not_generated_for_measures(demo_db: Path):
     profile = profile_table(demo_db, "orders")
     rules = generate_rules(profile)
-    amount_unique = [
-        r for r in rules
-        if r.column == "total_amount" and r.rule_type == "unique"
-    ]
+    amount_unique = [r for r in rules if r.column == "total_amount" and r.rule_type == "unique"]
     assert len(amount_unique) == 0
 
 
@@ -63,8 +60,7 @@ def test_accepted_values_for_categories(demo_db: Path):
     profile = profile_table(demo_db, "orders")
     rules = generate_rules(profile)
     status_rule = next(
-        (r for r in rules if r.column == "status"
-         and r.rule_type == "accepted_values"),
+        (r for r in rules if r.column == "status" and r.rule_type == "accepted_values"),
         None,
     )
     assert status_rule is not None

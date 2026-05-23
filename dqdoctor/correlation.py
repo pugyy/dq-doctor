@@ -16,7 +16,8 @@ class ColumnCorrelation(BaseModel):
 
 
 def detect_correlations(
-    db_path: "str | Path", table_name: str,
+    db_path: "str | Path",
+    table_name: str,
 ) -> list[ColumnCorrelation]:
     con = get_connection(str(db_path))
     try:
@@ -27,7 +28,9 @@ def detect_correlations(
 
 
 def _detect(
-    con: ConnectionWrapper, quoted_table: str, raw_table: str,
+    con: ConnectionWrapper,
+    quoted_table: str,
+    raw_table: str,
 ) -> list[ColumnCorrelation]:
     from dqdoctor.connectors.auto import get_table_columns
 
@@ -40,7 +43,7 @@ def _detect(
 
     pairs_checked: set[tuple[str, str]] = set()
     for i, col_a in enumerate(numeric_cols):
-        for col_b in numeric_cols[i + 1:]:
+        for col_b in numeric_cols[i + 1 :]:
             pair = tuple(sorted([col_a, col_b]))
             if pair in pairs_checked:
                 continue
@@ -56,15 +59,27 @@ def _detect(
 def _is_likely_numeric(dtype: str) -> bool:
     upper = dtype.upper()
     numeric_types = {
-        "TINYINT", "SMALLINT", "INTEGER", "BIGINT",
-        "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT",
-        "FLOAT", "DOUBLE", "DECIMAL", "HUGEINT",
+        "TINYINT",
+        "SMALLINT",
+        "INTEGER",
+        "BIGINT",
+        "UTINYINT",
+        "USMALLINT",
+        "UINTEGER",
+        "UBIGINT",
+        "FLOAT",
+        "DOUBLE",
+        "DECIMAL",
+        "HUGEINT",
     }
     return upper in numeric_types or upper.startswith("DECIMAL")
 
 
 def _check_pair(
-    con: ConnectionWrapper, table: str, col_a: str, col_b: str,
+    con: ConnectionWrapper,
+    table: str,
+    col_a: str,
+    col_b: str,
 ) -> ColumnCorrelation | None:
     qa = con.quote(col_a)
     qb = con.quote(col_b)
@@ -95,7 +110,7 @@ def _check_pair(
     if var_a <= 0 or var_b <= 0:
         return None
 
-    pearson = (sum_ab / n - mean_a * mean_b) / (var_a ** 0.5 * var_b ** 0.5)
+    pearson = (sum_ab / n - mean_a * mean_b) / (var_a**0.5 * var_b**0.5)
     abs_pearson = abs(pearson)
 
     if abs_pearson >= 0.95:
@@ -112,13 +127,10 @@ def _check_pair(
         )
 
     ratio_row = con.fetchone(
-        f"SELECT COUNT(*) FROM {table} "
-        f"WHERE {qa} > 0 AND {qb} > 0 AND ABS({qa} - {qb}) < 0.01"
+        f"SELECT COUNT(*) FROM {table} WHERE {qa} > 0 AND {qb} > 0 AND ABS({qa} - {qb}) < 0.01"
     )
     if ratio_row and ratio_row[0] > 0:
-        total_row = con.fetchone(
-            f"SELECT COUNT(*) FROM {table} WHERE {qa} > 0 AND {qb} > 0"
-        )
+        total_row = con.fetchone(f"SELECT COUNT(*) FROM {table} WHERE {qa} > 0 AND {qb} > 0")
         if total_row and total_row[0] > 5:
             match_rate = ratio_row[0] / total_row[0]
             if match_rate >= 0.8:

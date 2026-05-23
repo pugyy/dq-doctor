@@ -14,6 +14,7 @@ def load_custom_rules(path: "str | Path") -> list[RuleSuggestion]:
     content = path.read_text(encoding="utf-8-sig")
     if path.suffix in (".yaml", ".yml"):
         import yaml
+
         data = yaml.safe_load(content)
     else:
         data = json.loads(content)
@@ -29,16 +30,18 @@ def load_custom_rules(path: "str | Path") -> list[RuleSuggestion]:
     for i, raw in enumerate(raw_rules):
         if not raw.get("enabled", True):
             continue
-        rules.append(RuleSuggestion(
-            rule_id=raw.get("rule_id", f"custom.{i}"),
-            rule_type=raw.get("rule_type", "unknown"),
-            column=raw.get("column", ""),
-            params=raw.get("params", {}),
-            confidence=float(raw.get("confidence", 0.5)),
-            severity=raw.get("severity", "medium"),
-            reason=raw.get("reason", ""),
-            source="custom",
-        ))
+        rules.append(
+            RuleSuggestion(
+                rule_id=raw.get("rule_id", f"custom.{i}"),
+                rule_type=raw.get("rule_type", "unknown"),
+                column=raw.get("column", ""),
+                params=raw.get("params", {}),
+                confidence=float(raw.get("confidence", 0.5)),
+                severity=raw.get("severity", "medium"),
+                reason=raw.get("reason", ""),
+                source="custom",
+            )
+        )
     return rules
 
 
@@ -50,6 +53,7 @@ def load_disabled_keys(path: "str | Path") -> set[tuple[str, str]]:
     content = path.read_text(encoding="utf-8-sig")
     if path.suffix in (".yaml", ".yml"):
         import yaml
+
         data = yaml.safe_load(content)
     else:
         data = json.loads(content)
@@ -78,6 +82,7 @@ def load_severity_overrides(path: "str | Path") -> dict[tuple[str, str], str]:
     content = path.read_text(encoding="utf-8-sig")
     if path.suffix in (".yaml", ".yml"):
         import yaml
+
         data = yaml.safe_load(content)
     else:
         data = json.loads(content)

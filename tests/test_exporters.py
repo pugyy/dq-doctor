@@ -46,9 +46,12 @@ def test_dbt_no_range_no_note(tmp_path: Path):
         row_count=1,
         columns=[
             ColumnProfile(
-                name="status", dtype="VARCHAR",
-                null_count=0, null_rate=0.0,
-                distinct_count=2, distinct_rate=1.0,
+                name="status",
+                dtype="VARCHAR",
+                null_count=0,
+                null_rate=0.0,
+                distinct_count=2,
+                distinct_rate=1.0,
                 inferred_semantic_type="category",
             )
         ],

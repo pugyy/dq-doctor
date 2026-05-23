@@ -15,8 +15,7 @@ def create_app(db_path: str):
         from flask import Flask, jsonify
     except ImportError:
         raise ImportError(
-            "Flask is required for dashboard mode. "
-            "Install with: pip install dq-doctor[dashboard]"
+            "Flask is required for dashboard mode. Install with: pip install dq-doctor[dashboard]"
         )
 
     app = Flask(__name__)
@@ -24,9 +23,7 @@ def create_app(db_path: str):
     @app.route("/")
     def index():
         tables = list_tables(db_path)
-        links = "".join(
-            f'<li><a href="/table/{t}">{t}</a></li>' for t in tables
-        )
+        links = "".join(f'<li><a href="/table/{t}">{t}</a></li>' for t in tables)
         return f"<html><body><h1>dq-doctor Dashboard</h1><ul>{links}</ul></body></html>"
 
     @app.route("/table/<table_name>")

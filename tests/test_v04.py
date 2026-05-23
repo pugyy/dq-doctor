@@ -29,6 +29,7 @@ def dirty_db(tmp_path: Path):
 
 # --- Config ---
 
+
 def test_load_config_missing_file():
     config = load_config("/nonexistent/.dqdoctor.yml")
     assert config.db is None
@@ -95,19 +96,17 @@ def test_apply_config_override_severity():
             reason="test",
         ),
     ]
-    config = DQConfig(tables={
-        "orders": TableConfig(severity={"order_id:not_null": "high"})
-    })
+    config = DQConfig(tables={"orders": TableConfig(severity={"order_id:not_null": "high"})})
     result, log = apply_config_to_rules(rules, "orders", config)
     assert result[0].severity == "high"
 
 
 def test_get_sql_rules():
-    config = DQConfig(tables={
-        "orders": TableConfig(sql_rules=[
-            {"name": "test", "query": "SELECT 1", "expect": 1}
-        ])
-    })
+    config = DQConfig(
+        tables={
+            "orders": TableConfig(sql_rules=[{"name": "test", "query": "SELECT 1", "expect": 1}])
+        }
+    )
     sql_rules = get_sql_rules(config, "orders")
     assert len(sql_rules) == 1
     assert sql_rules[0]["name"] == "test"
@@ -119,6 +118,7 @@ def test_get_sql_rules_no_table():
 
 
 # --- SQL Rules ---
+
 
 def test_execute_sql_rules(demo_db: Path):
     sql_rules = [
@@ -138,9 +138,7 @@ def test_execute_sql_rules_dirty(dirty_db: Path):
     sql_rules = [
         {
             "name": "positive_amount",
-            "query": (
-                "SELECT COUNT(*) FROM dirty_orders WHERE total_amount <= 0"
-            ),
+            "query": ("SELECT COUNT(*) FROM dirty_orders WHERE total_amount <= 0"),
             "expect": 0,
         },
     ]
@@ -155,6 +153,7 @@ def test_execute_sql_rules_empty():
 
 
 # --- Referential Integrity ---
+
 
 def test_ref_integrity_clean(demo_db: Path):
     results = check_referential_integrity(demo_db)
@@ -175,12 +174,14 @@ def test_ref_integrity_dirty(dirty_db: Path):
 
 # --- Dirty Demo ---
 
+
 def test_dirty_db_created(dirty_db: Path):
     assert dirty_db.exists()
 
 
 def test_dirty_db_tables(dirty_db: Path):
     from dqdoctor.demo import list_tables
+
     tables = list_tables(dirty_db)
     assert "dirty_orders" in tables
     assert "dirty_users" in tables
@@ -188,6 +189,7 @@ def test_dirty_db_tables(dirty_db: Path):
 
 def test_dirty_db_has_nulls(dirty_db: Path):
     from dqdoctor.profiler import profile_table
+
     profile = profile_table(dirty_db, "dirty_orders")
     user_id = next(c for c in profile.columns if c.name == "user_id")
     assert user_id.null_count > 0
@@ -195,6 +197,7 @@ def test_dirty_db_has_nulls(dirty_db: Path):
 
 def test_dirty_db_has_orphan_fk(dirty_db: Path):
     from dqdoctor.profiler import profile_table
+
     profile = profile_table(dirty_db, "dirty_orders")
     user_id = next(c for c in profile.columns if c.name == "user_id")
     assert user_id.max_value == 99

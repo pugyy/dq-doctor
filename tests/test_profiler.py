@@ -64,8 +64,7 @@ def test_profile_distinct_values_populated(demo_db: Path):
     for col in profile.columns:
         if col.distinct_count <= 20:
             assert len(col.distinct_values) == col.distinct_count, (
-                f"Column {col.name}: distinct_values length "
-                f"!= distinct_count"
+                f"Column {col.name}: distinct_values length != distinct_count"
             )
 
 
