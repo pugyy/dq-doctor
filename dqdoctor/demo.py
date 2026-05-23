@@ -7,11 +7,8 @@ import duckdb
 from dqdoctor.connectors.auto import list_tables as _auto_list_tables
 
 _DATA_DIR = Path(__file__).resolve().parent / "data"
-EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
-DEFAULT_DB_PATH = EXAMPLES_DIR / "ecommerce" / "demo.duckdb"
 SEED_SQL_PATH = _DATA_DIR / "seed.sql"
 DIRTY_SEED_PATH = _DATA_DIR / "dirty_seed.sql"
-DEFAULT_DIRTY_PATH = EXAMPLES_DIR / "ecommerce" / "dirty.duckdb"
 
 
 def create_demo_db(db_path: "str | Path | None" = None) -> Path:

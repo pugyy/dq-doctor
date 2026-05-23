@@ -19,7 +19,6 @@ _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 def _compute_score(
     total: int,
     passed: int,
-    failed: int,
     pii_count: int = 0,
     refint_issues: int = 0,
 ) -> int:
@@ -51,7 +50,6 @@ def build_report(
     score = _compute_score(
         total,
         passed,
-        failed,
         pii_count=len(pii),
         refint_issues=sum(1 for r in refint if r.orphan_rows > 0),
     )

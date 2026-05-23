@@ -236,7 +236,6 @@ def _run_check(
     refint_issues = []
     with console.status("[bold blue]Checking referential integrity..."):
         try:
-            from dqdoctor.models import RefIntegrityIssue
             from dqdoctor.ref_integrity import check_referential_integrity
 
             ri_results = check_referential_integrity(db)
@@ -271,15 +270,14 @@ def _run_check(
 
     score_bar_filled = report.quality_score // 5
     score_bar_empty = 20 - score_bar_filled
-    bar_text = Text()
-    bar_text.append("█" * score_bar_filled, style=score_color)
-    bar_text.append("░" * score_bar_empty, style="dim")
+    header = Text()
+    header.append(f"  {table}  ", style="bold")
+    header.append(f"{report.quality_score}/100 ", style=score_color)
+    header.append("█" * score_bar_filled, style=score_color)
+    header.append("░" * score_bar_empty, style="dim")
 
     console.print()
-    console.print(
-        f"  [bold]{table}[/bold]  [{score_color}]{report.quality_score}/100[/{score_color}]  ",
-        bar_text,
-    )
+    console.print(header)
     console.print(
         f"  Rules {report.total_rules}  "
         f"[green]Passed {report.passed_rules}[/green]  "
@@ -554,12 +552,21 @@ def serve(
 
 @app.command()
 def refint(
-    db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
+    db: Optional[str] = typer.Option(None, "--db", help="Path to database"),
+    config: Optional[str] = typer.Option(
+        None, "--config", help="Path to .dqdoctor.yml config file"
+    ),
 ) -> None:
+    from dqdoctor.config import load_config as _load_config
     from dqdoctor.ref_integrity import check_referential_integrity
 
+    effective_db = _load_config(config).db or db
+    if not effective_db:
+        console.print("[red]Error: --db is required.[/red]")
+        raise typer.Exit(1)
+
     with console.status("[bold blue]Checking referential integrity..."):
-        results = check_referential_integrity(db)
+        results = check_referential_integrity(effective_db)
 
     if not results:
         console.print("[yellow]No foreign key relationships found.[/yellow]")
@@ -650,14 +657,7 @@ def doctor() -> None:
     py_ok = sys.version_info >= (3, 9)
     checks.append(("Python version", py_ok, f"{py_ver} {'OK' if py_ok else 'FAIL: need 3.9+'}"))
 
-    pkg_version = "unknown"
-    try:
-        from dqdoctor import __version__
-
-        pkg_version = __version__
-    except Exception:
-        pass
-    checks.append(("dq-doctor version", True, pkg_version))
+    checks.append(("dq-doctor version", True, _VERSION))
 
     try:
         import duckdb
