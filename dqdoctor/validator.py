@@ -156,7 +156,7 @@ def _validate_freshness(
 
     max_ts = row[0]
     if isinstance(max_ts, date) and not isinstance(max_ts, datetime):
-        max_ts = datetime.datetime(max_ts.year, max_ts.month, max_ts.day)
+        max_ts = datetime(max_ts.year, max_ts.month, max_ts.day)
     if isinstance(max_ts, str):
         max_ts = datetime.fromisoformat(max_ts)
 
