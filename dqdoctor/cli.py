@@ -5,7 +5,9 @@ from typing import Any, Optional
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from dqdoctor.custom_rules import (
     load_custom_rules,
@@ -25,6 +27,8 @@ from dqdoctor.rule_engine import generate_rules
 from dqdoctor.sql_rules import execute_sql_rules
 from dqdoctor.validator import validate_rules
 
+_VERSION = "0.7.1"
+
 app = typer.Typer(
     name="dqdoctor",
     help="A lightweight data quality checkup CLI. No YAML, no rule syntax to remember.",
@@ -42,14 +46,30 @@ def demo(
 ) -> None:
     if dirty:
         db_path = create_dirty_db(output)
-        console.print("[yellow]Dirty demo database created (contains issues!):[/yellow]")
+        console.print(
+            Panel(
+                f"[yellow]Dirty demo database created[/yellow]\n"
+                f"Contains intentional data quality issues for testing.\n\n"
+                f"[bold]Database:[/bold]  {db_path}\n"
+                f"[bold]Tables:[/bold]    {', '.join(list_tables(db_path))}",
+                title="[bold]dq-doctor[/bold] demo --dirty",
+                border_style="yellow",
+            )
+        )
     else:
         db_path = create_demo_db(output)
-        console.print(f"[green]Demo database created:[/green] {db_path}")
-    tables = list_tables(db_path)
-    console.print(f"[blue]Tables:[/blue] {', '.join(tables)}")
-    if tables:
-        console.print(f"[dim]Try: dqdoctor check --db {db_path} --table {tables[0]}[/dim]")
+        tables = list_tables(db_path)
+        console.print(
+            Panel(
+                f"[green]Demo database created[/green]\n\n"
+                f"[bold]Database:[/bold]  {db_path}\n"
+                f"[bold]Tables:[/bold]    {', '.join(tables)}",
+                title="[bold]dq-doctor[/bold] demo",
+                border_style="green",
+            )
+        )
+        if tables:
+            console.print(f"[dim]  Next: dqdoctor check --db {db_path} --table {tables[0]}[/dim]")
 
 
 @app.command()
@@ -66,9 +86,13 @@ def tables(
         console.print("[red]Error: --db is required.[/red]")
         raise typer.Exit(1)
     table_list = list_tables(effective_db)
-    for t in table_list:
-        console.print(f"  {t}")
-    console.print(f"[dim]{len(table_list)} table(s)[/dim]")
+    table_obj = Table(show_header=True, header_style="bold")
+    table_obj.add_column("#", style="dim", width=4)
+    table_obj.add_column("Table", style="bold")
+    for i, t in enumerate(table_list, 1):
+        table_obj.add_row(str(i), t)
+    console.print(table_obj)
+    console.print(f"[dim]{len(table_list)} table(s) in {effective_db}[/dim]")
 
 
 def _print_profile(profile_result) -> None:
@@ -245,15 +269,24 @@ def _run_check(
         "green" if report.quality_score >= 80 else "yellow" if report.quality_score >= 50 else "red"
     )
 
+    score_bar_filled = report.quality_score // 5
+    score_bar_empty = 20 - score_bar_filled
+    bar_text = Text()
+    bar_text.append("█" * score_bar_filled, style=score_color)
+    bar_text.append("░" * score_bar_empty, style="dim")
+
     console.print()
     console.print(
-        f"[bold]{table}[/bold]: "
-        f"Score [{score_color}]{report.quality_score}/100[/{score_color}]  "
-        f"Rules {report.total_rules}  "
+        f"  [bold]{table}[/bold]  [{score_color}]{report.quality_score}/100[/{score_color}]  ",
+        bar_text,
+    )
+    console.print(
+        f"  Rules {report.total_rules}  "
         f"[green]Passed {report.passed_rules}[/green]  "
         f"[red]Failed {report.failed_rules}[/red]  "
         f"[cyan]Suggested {report.suggested_rules}[/cyan]"
     )
+    console.print()
 
     for r in results:
         if r.total_count == 0 and r.passed:
@@ -603,7 +636,13 @@ def doctor() -> None:
     import importlib
     import sys
 
-    console.print("[bold]dq-doctor health check[/bold]\n")
+    console.print(
+        Panel(
+            f"[bold]dq-doctor[/bold]  v{_VERSION}",
+            border_style="blue",
+            expand=False,
+        )
+    )
 
     checks: list[tuple[str, bool, str]] = []
 
