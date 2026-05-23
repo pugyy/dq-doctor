@@ -71,6 +71,42 @@ def test_dbt_no_range_no_note(tmp_path: Path):
     assert "not_null" in content
 
 
+def test_dbt_range_expression_includes_column_name(tmp_path: Path):
+    from dqdoctor.exporters.dbt import export_dbt_schema
+    from dqdoctor.models import ColumnProfile, ProfileResult, RuleSuggestion
+
+    profile = ProfileResult(
+        db_path="test.db",
+        table_name="t",
+        row_count=1,
+        columns=[
+            ColumnProfile(
+                name="amount",
+                dtype="DECIMAL",
+                null_count=0,
+                null_rate=0.0,
+                distinct_count=5,
+                distinct_rate=1.0,
+                inferred_semantic_type="measure",
+            )
+        ],
+    )
+    rules = [
+        RuleSuggestion(
+            rule_id="range:amount.1",
+            rule_type="range",
+            column="amount",
+            params={"min": 10, "max": 999},
+            confidence=0.9,
+            severity="medium",
+            reason="test",
+        )
+    ]
+    content = export_dbt_schema(profile, rules)
+    assert "amount >= 10" in content
+    assert "amount <= 999" in content
+
+
 def test_save_dbt_schema(profile_and_rules, tmp_path: Path):
     profile, rules = profile_and_rules
     out = tmp_path / "schema.yml"
