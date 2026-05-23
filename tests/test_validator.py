@@ -124,3 +124,31 @@ def test_validate_freshness_with_date_column(tmp_path: Path):
     results = validate_rules(db_path, "events", [rule])
     assert len(results) == 1
     assert results[0].passed is True
+
+
+def test_validate_freshness_parses_z_suffix_timestamp(tmp_path: Path):
+
+    import duckdb
+
+    from dqdoctor.models import RuleSuggestion
+
+    db_path = tmp_path / "z_test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE logs (log_id INT, created_at VARCHAR)")
+    con.execute("INSERT INTO logs VALUES (1, '2026-05-23T00:00:00Z'), (2, '2026-05-22T12:00:00Z')")
+    con.close()
+
+    rule = RuleSuggestion(
+        rule_id="freshness:created_at",
+        rule_type="freshness",
+        column="created_at",
+        params={"max_age_hours": 720},
+        confidence=1.0,
+        severity="medium",
+        reason="test",
+        source="heuristic",
+    )
+
+    results = validate_rules(db_path, "logs", [rule])
+    assert len(results) == 1
+    assert results[0].passed is True
