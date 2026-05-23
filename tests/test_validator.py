@@ -101,14 +101,13 @@ def test_validate_users_with_nulls(tmp_path: Path):
 
 def test_validate_freshness_with_date_column(tmp_path: Path):
     import duckdb
+
     from dqdoctor.models import RuleSuggestion
 
     db_path = tmp_path / "date_test.duckdb"
     con = duckdb.connect(str(db_path))
     con.execute("CREATE TABLE events (event_id INT, event_date DATE)")
-    con.execute(
-        "INSERT INTO events VALUES (1, CURRENT_DATE), (2, CURRENT_DATE - INTERVAL 1 DAY)"
-    )
+    con.execute("INSERT INTO events VALUES (1, CURRENT_DATE), (2, CURRENT_DATE - INTERVAL 1 DAY)")
     con.close()
 
     rule = RuleSuggestion(
