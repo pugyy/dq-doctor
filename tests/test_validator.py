@@ -97,3 +97,31 @@ def test_validate_users_with_nulls(tmp_path: Path):
     if email_not_null:
         assert email_not_null.passed is False
         assert email_not_null.failed_count > 0
+
+
+def test_validate_freshness_with_date_column(tmp_path: Path):
+    import duckdb
+    from dqdoctor.models import RuleSuggestion
+
+    db_path = tmp_path / "date_test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE events (event_id INT, event_date DATE)")
+    con.execute(
+        "INSERT INTO events VALUES (1, CURRENT_DATE), (2, CURRENT_DATE - INTERVAL 1 DAY)"
+    )
+    con.close()
+
+    rule = RuleSuggestion(
+        rule_id="freshness:event_date",
+        rule_type="freshness",
+        column="event_date",
+        params={"max_age_hours": 48},
+        confidence=1.0,
+        severity="medium",
+        reason="test",
+        source="heuristic",
+    )
+
+    results = validate_rules(db_path, "events", [rule])
+    assert len(results) == 1
+    assert results[0].passed is True
