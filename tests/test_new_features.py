@@ -53,8 +53,7 @@ def test_discover_fk(demo_db: Path):
     assert isinstance(relationships, list)
     fk_pairs = [(r.from_table, r.from_column, r.to_table) for r in relationships]
     has_user_ref = any(
-        ft == "orders" and fc == "user_id" and tt == "users"
-        for ft, fc, tt in fk_pairs
+        ft == "orders" and fc == "user_id" and tt == "users" for ft, fc, tt in fk_pairs
     )
     assert has_user_ref
 
@@ -87,20 +86,34 @@ def test_drift_null_rate(demo_db: Path):
     from dqdoctor.models import ColumnProfile, ProfileResult
 
     old = ProfileResult(
-        db_path="old", table_name="t", row_count=100,
-        columns=[ColumnProfile(
-            name="col1", dtype="INTEGER",
-            null_count=0, null_rate=0.0,
-            distinct_count=50, distinct_rate=0.5,
-        )],
+        db_path="old",
+        table_name="t",
+        row_count=100,
+        columns=[
+            ColumnProfile(
+                name="col1",
+                dtype="INTEGER",
+                null_count=0,
+                null_rate=0.0,
+                distinct_count=50,
+                distinct_rate=0.5,
+            )
+        ],
     )
     new = ProfileResult(
-        db_path="new", table_name="t", row_count=100,
-        columns=[ColumnProfile(
-            name="col1", dtype="INTEGER",
-            null_count=20, null_rate=0.2,
-            distinct_count=50, distinct_rate=0.5,
-        )],
+        db_path="new",
+        table_name="t",
+        row_count=100,
+        columns=[
+            ColumnProfile(
+                name="col1",
+                dtype="INTEGER",
+                null_count=20,
+                null_rate=0.2,
+                distinct_count=50,
+                distinct_rate=0.5,
+            )
+        ],
     )
     result = compare_profiles(old, new)
     assert len(result.drifts) == 1
@@ -112,20 +125,34 @@ def test_drift_dtype_change():
     from dqdoctor.models import ColumnProfile, ProfileResult
 
     old = ProfileResult(
-        db_path="old", table_name="t", row_count=10,
-        columns=[ColumnProfile(
-            name="col1", dtype="INTEGER",
-            null_count=0, null_rate=0.0,
-            distinct_count=5, distinct_rate=0.5,
-        )],
+        db_path="old",
+        table_name="t",
+        row_count=10,
+        columns=[
+            ColumnProfile(
+                name="col1",
+                dtype="INTEGER",
+                null_count=0,
+                null_rate=0.0,
+                distinct_count=5,
+                distinct_rate=0.5,
+            )
+        ],
     )
     new = ProfileResult(
-        db_path="new", table_name="t", row_count=10,
-        columns=[ColumnProfile(
-            name="col1", dtype="VARCHAR",
-            null_count=0, null_rate=0.0,
-            distinct_count=5, distinct_rate=0.5,
-        )],
+        db_path="new",
+        table_name="t",
+        row_count=10,
+        columns=[
+            ColumnProfile(
+                name="col1",
+                dtype="VARCHAR",
+                null_count=0,
+                null_rate=0.0,
+                distinct_count=5,
+                distinct_rate=0.5,
+            )
+        ],
     )
     result = compare_profiles(old, new)
     assert any(d.metric == "dtype" for d in result.drifts)
@@ -150,25 +177,40 @@ def test_drift_column_added():
     from dqdoctor.models import ColumnProfile, ProfileResult
 
     old = ProfileResult(
-        db_path="old", table_name="t", row_count=10,
-        columns=[ColumnProfile(
-            name="a", dtype="INTEGER",
-            null_count=0, null_rate=0.0,
-            distinct_count=5, distinct_rate=0.5,
-        )],
-    )
-    new = ProfileResult(
-        db_path="new", table_name="t", row_count=10,
+        db_path="old",
+        table_name="t",
+        row_count=10,
         columns=[
             ColumnProfile(
-                name="a", dtype="INTEGER",
-                null_count=0, null_rate=0.0,
-                distinct_count=5, distinct_rate=0.5,
+                name="a",
+                dtype="INTEGER",
+                null_count=0,
+                null_rate=0.0,
+                distinct_count=5,
+                distinct_rate=0.5,
+            )
+        ],
+    )
+    new = ProfileResult(
+        db_path="new",
+        table_name="t",
+        row_count=10,
+        columns=[
+            ColumnProfile(
+                name="a",
+                dtype="INTEGER",
+                null_count=0,
+                null_rate=0.0,
+                distinct_count=5,
+                distinct_rate=0.5,
             ),
             ColumnProfile(
-                name="b", dtype="VARCHAR",
-                null_count=0, null_rate=0.0,
-                distinct_count=3, distinct_rate=0.3,
+                name="b",
+                dtype="VARCHAR",
+                null_count=0,
+                null_rate=0.0,
+                distinct_count=3,
+                distinct_rate=0.3,
             ),
         ],
     )

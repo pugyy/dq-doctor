@@ -45,7 +45,9 @@ def load_config(path: "str | Path | None" = None) -> DQConfig:
 
 
 def apply_config_to_rules(
-    rules: list, table_name: str, config: DQConfig,
+    rules: list,
+    table_name: str,
+    config: DQConfig,
 ) -> tuple[list, list[str]]:
     tc = config.tables.get(table_name)
     if tc is None:
@@ -69,8 +71,7 @@ def apply_config_to_rules(
             r.severity = tc.severity[rule_key_alt]
         if r.severity != old_sev:
             log.append(
-                f"{r.rule_type}.{r.column}: severity {old_sev} -> {r.severity} "
-                f"by .dqdoctor.yml"
+                f"{r.rule_type}.{r.column}: severity {old_sev} -> {r.severity} by .dqdoctor.yml"
             )
         if r.rule_type == "freshness" and r.column in tc.freshness:
             override = tc.freshness[r.column]

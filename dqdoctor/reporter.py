@@ -49,7 +49,9 @@ def build_report(
     refint = refint_issues or []
 
     score = _compute_score(
-        total, passed, failed,
+        total,
+        passed,
+        failed,
         pii_count=len(pii),
         refint_issues=sum(1 for r in refint if r.orphan_rows > 0),
     )

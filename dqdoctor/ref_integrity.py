@@ -21,7 +21,8 @@ class RefIntegrityResult(BaseModel):
 
 
 def check_referential_integrity(
-    db_path: "str | Path", relationships: list[FKRelationship] | None = None,
+    db_path: "str | Path",
+    relationships: list[FKRelationship] | None = None,
 ) -> list[RefIntegrityResult]:
     con = get_connection(str(db_path))
     try:
@@ -38,9 +39,7 @@ def _check_one(con, fk: FKRelationship) -> RefIntegrityResult:
     qc_src = con.quote(fk.from_column)
     qc_tgt = con.quote(fk.to_column)
 
-    total_row = con.fetchone(
-        f"SELECT COUNT(*) FROM {qt_src} WHERE {qc_src} IS NOT NULL"
-    )
+    total_row = con.fetchone(f"SELECT COUNT(*) FROM {qt_src} WHERE {qc_src} IS NOT NULL")
     total = total_row[0] if total_row else 0
 
     if total == 0:

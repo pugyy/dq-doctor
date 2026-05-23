@@ -20,10 +20,7 @@ def export_soda_cl(
         elif rule.rule_type == "accepted_values":
             values = rule.params.get("values", [])
             vals_str = ", ".join(f"'{v}'" for v in values)
-            lines.append(
-                f"  - invalid_count({rule.column}) = 0:"
-                f" {{ values: [{vals_str}] }}"
-            )
+            lines.append(f"  - invalid_count({rule.column}) = 0: {{ values: [{vals_str}] }}")
         elif rule.rule_type == "range":
             min_v = rule.params.get("min")
             max_v = rule.params.get("max")

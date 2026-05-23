@@ -22,3 +22,6 @@ examples/ecommerce/demo.duckdb
 .venv/
 venv/
 *.whl
+.coverage
+coverage.xml
+htmlcov/

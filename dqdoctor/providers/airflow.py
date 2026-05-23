@@ -7,6 +7,7 @@ from typing import Any, Optional
 def _get_base_operator():
     try:
         from airflow.models import BaseOperator
+
         return BaseOperator
     except ImportError:
         return object

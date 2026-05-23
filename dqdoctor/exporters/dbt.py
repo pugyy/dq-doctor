@@ -57,15 +57,14 @@ def export_dbt_schema(
             continue
         col = rule.column
         if col not in column_models:
-            col_profile = next(
-                (c for c in profile.columns if c.name == col), None
-            )
+            col_profile = next((c for c in profile.columns if c.name == col), None)
             column_models[col] = {
                 "name": col,
                 "description": "",
                 "meta": {
                     "semantic_type": col_profile.inferred_semantic_type
-                    if col_profile else "unknown",
+                    if col_profile
+                    else "unknown",
                 },
                 "tests": [],
             }
@@ -85,9 +84,7 @@ def export_dbt_schema(
         ],
     }
     has_range = any(r.rule_type == "range" for r in rules)
-    output = yaml.dump(
-        _sanitize(schema), default_flow_style=False, sort_keys=False
-    )
+    output = yaml.dump(_sanitize(schema), default_flow_style=False, sort_keys=False)
     if has_range:
         output = _DBT_UTILS_NOTE + output
     return output

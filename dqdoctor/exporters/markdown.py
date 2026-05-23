@@ -18,14 +18,8 @@ def export_markdown(
 
     lines.append("## Columns")
     lines.append("")
-    lines.append(
-        "| Column | Type | Nullable | Distinct | "
-        "Min | Max | Semantic |"
-    )
-    lines.append(
-        "|--------|------|----------|----------|"
-        "-----|-----|----------|"
-    )
+    lines.append("| Column | Type | Nullable | Distinct | Min | Max | Semantic |")
+    lines.append("|--------|------|----------|----------|-----|-----|----------|")
     for col in profile.columns:
         nullable = "Yes" if col.null_rate > 0 else "No"
         lines.append(

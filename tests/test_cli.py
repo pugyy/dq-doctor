@@ -31,10 +31,18 @@ def test_tables_command(demo_db: Path):
 
 def test_profile_command(demo_db: Path):
     out_json = demo_db.parent / "profile.json"
-    result = runner.invoke(app, [
-        "profile", "--db", str(demo_db),
-        "--table", "orders", "--out", str(out_json),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "profile",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--out",
+            str(out_json),
+        ],
+    )
     assert result.exit_code == 0
     assert "orders" in result.stdout
     assert out_json.exists()
@@ -42,10 +50,18 @@ def test_profile_command(demo_db: Path):
 
 def test_check_command(demo_db: Path):
     out_html = demo_db.parent / "report.html"
-    result = runner.invoke(app, [
-        "check", "--db", str(demo_db),
-        "--table", "orders", "--out", str(out_html),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--out",
+            str(out_html),
+        ],
+    )
     assert result.exit_code == 0
     assert "PASS" in result.stdout
     assert out_html.exists()
@@ -53,10 +69,17 @@ def test_check_command(demo_db: Path):
 
 def test_check_all_tables(demo_db: Path):
     out_dir = demo_db.parent
-    result = runner.invoke(app, [
-        "check", "--db", str(demo_db),
-        "--all-tables", "--out", str(out_dir / "report.html"),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--db",
+            str(demo_db),
+            "--all-tables",
+            "--out",
+            str(out_dir / "report.html"),
+        ],
+    )
     assert result.exit_code == 0
     assert (out_dir / "report_orders.html").exists()
     assert (out_dir / "report_users.html").exists()
@@ -87,10 +110,18 @@ def test_doctor_command():
 
 def test_rules_init_command(demo_db: Path):
     out_rules = demo_db.parent / "rules.yml"
-    result = runner.invoke(app, [
-        "rules-init", "--db", str(demo_db),
-        "--table", "orders", "--out", str(out_rules),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "rules-init",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--out",
+            str(out_rules),
+        ],
+    )
     assert result.exit_code == 0
     assert out_rules.exists()
     content = out_rules.read_text(encoding="utf-8")
@@ -101,28 +132,53 @@ def test_rules_init_command(demo_db: Path):
 
 def test_rules_init_check_roundtrip(demo_db: Path):
     out_rules = demo_db.parent / "rules.yml"
-    runner.invoke(app, [
-        "rules-init", "--db", str(demo_db),
-        "--table", "orders", "--out", str(out_rules),
-    ])
+    runner.invoke(
+        app,
+        [
+            "rules-init",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--out",
+            str(out_rules),
+        ],
+    )
     out_html = demo_db.parent / "report.html"
-    result = runner.invoke(app, [
-        "check", "--db", str(demo_db),
-        "--table", "orders",
-        "--rules", str(out_rules),
-        "--out", str(out_html),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--rules",
+            str(out_rules),
+            "--out",
+            str(out_html),
+        ],
+    )
     assert result.exit_code == 0
     assert "PASS" in result.stdout
 
 
 def test_rules_disable_auto_rule(demo_db: Path):
     out_rules = demo_db.parent / "rules.yml"
-    runner.invoke(app, [
-        "rules-init", "--db", str(demo_db),
-        "--table", "orders", "--out", str(out_rules),
-    ])
+    runner.invoke(
+        app,
+        [
+            "rules-init",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--out",
+            str(out_rules),
+        ],
+    )
     import yaml
+
     data = yaml.safe_load(out_rules.read_text(encoding="utf-8"))
     for r in data["rules"]:
         if r["rule_type"] == "not_null" and r["column"] == "order_id":
@@ -130,12 +186,20 @@ def test_rules_disable_auto_rule(demo_db: Path):
     out_rules.write_text(yaml.dump(data, allow_unicode=True), encoding="utf-8")
 
     out_html = demo_db.parent / "report.html"
-    result = runner.invoke(app, [
-        "check", "--db", str(demo_db),
-        "--table", "orders",
-        "--rules", str(out_rules),
-        "--out", str(out_html),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--rules",
+            str(out_rules),
+            "--out",
+            str(out_html),
+        ],
+    )
     assert result.exit_code == 0
     for line in result.stdout.splitlines():
         if "not_null" in line and "order_id" in line:
@@ -145,11 +209,20 @@ def test_rules_disable_auto_rule(demo_db: Path):
 
 def test_rules_override_params(demo_db: Path):
     out_rules = demo_db.parent / "rules.yml"
-    runner.invoke(app, [
-        "rules-init", "--db", str(demo_db),
-        "--table", "orders", "--out", str(out_rules),
-    ])
+    runner.invoke(
+        app,
+        [
+            "rules-init",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--out",
+            str(out_rules),
+        ],
+    )
     import yaml
+
     data = yaml.safe_load(out_rules.read_text(encoding="utf-8"))
     for r in data["rules"]:
         if r["rule_type"] == "range" and r["column"] == "user_id":
@@ -157,12 +230,20 @@ def test_rules_override_params(demo_db: Path):
     out_rules.write_text(yaml.dump(data, allow_unicode=True), encoding="utf-8")
 
     out_html = demo_db.parent / "report.html"
-    result = runner.invoke(app, [
-        "check", "--db", str(demo_db),
-        "--table", "orders",
-        "--rules", str(out_rules),
-        "--out", str(out_html),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--rules",
+            str(out_rules),
+            "--out",
+            str(out_html),
+        ],
+    )
     assert result.exit_code == 0
     for line in result.stdout.splitlines():
         if "range" in line and "user_id" in line:
@@ -171,6 +252,7 @@ def test_rules_override_params(demo_db: Path):
 
 def test_demo_dirty_default_path(tmp_path: Path):
     import os
+
     prev = os.getcwd()
     try:
         os.chdir(str(tmp_path))
@@ -183,11 +265,18 @@ def test_demo_dirty_default_path(tmp_path: Path):
 
 def test_check_save_profile(demo_db: Path, tmp_path: Path):
     profile_dir = tmp_path / "profiles"
-    result = runner.invoke(app, [
-        "check", "--db", str(demo_db),
-        "--table", "orders",
-        "--save-profile", str(profile_dir),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--save-profile",
+            str(profile_dir),
+        ],
+    )
     assert result.exit_code == 0
     saved = list(profile_dir.glob("orders_*.json"))
     assert len(saved) == 1
@@ -195,10 +284,18 @@ def test_check_save_profile(demo_db: Path, tmp_path: Path):
 
 def test_check_shows_score(demo_db: Path):
     out_html = demo_db.parent / "report.html"
-    result = runner.invoke(app, [
-        "check", "--db", str(demo_db),
-        "--table", "orders", "--out", str(out_html),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--out",
+            str(out_html),
+        ],
+    )
     assert result.exit_code == 0
     assert "Score" in result.stdout
     assert "/100" in result.stdout
@@ -207,12 +304,19 @@ def test_check_shows_score(demo_db: Path):
 
 def test_check_verbose_rules(demo_db: Path):
     out_html = demo_db.parent / "report.html"
-    result = runner.invoke(app, [
-        "check", "--db", str(demo_db),
-        "--table", "orders",
-        "--verbose-rules",
-        "--out", str(out_html),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--db",
+            str(demo_db),
+            "--table",
+            "orders",
+            "--verbose-rules",
+            "--out",
+            str(out_html),
+        ],
+    )
     assert result.exit_code == 0
     assert "Rule sources:" in result.stdout
     assert "severity=" in result.stdout
@@ -220,6 +324,7 @@ def test_check_verbose_rules(demo_db: Path):
 
 def test_check_verbose_rules_config(demo_db: Path):
     import yaml
+
     config_path = demo_db.parent / ".dqdoctor.yml"
     config_data = {
         "db": str(demo_db),
@@ -233,12 +338,19 @@ def test_check_verbose_rules_config(demo_db: Path):
     config_path.write_text(yaml.dump(config_data), encoding="utf-8")
 
     out_html = demo_db.parent / "report.html"
-    result = runner.invoke(app, [
-        "check", "--config", str(config_path),
-        "--table", "orders",
-        "--verbose-rules",
-        "--out", str(out_html),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--config",
+            str(config_path),
+            "--table",
+            "orders",
+            "--verbose-rules",
+            "--out",
+            str(out_html),
+        ],
+    )
     assert result.exit_code == 0
     assert "disabled by" in result.stdout
     assert "severity" in result.stdout
@@ -246,10 +358,19 @@ def test_check_verbose_rules_config(demo_db: Path):
 
 def test_ci_refint_failure(tmp_path: Path):
     from dqdoctor.demo import create_dirty_db
+
     dirty_db = create_dirty_db(tmp_path / "dirty.duckdb")
-    result = runner.invoke(app, [
-        "check", "--db", str(dirty_db),
-        "--table", "dirty_orders",
-        "--ci", "--max-failures", "0",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "--db",
+            str(dirty_db),
+            "--table",
+            "dirty_orders",
+            "--ci",
+            "--max-failures",
+            "0",
+        ],
+    )
     assert result.exit_code != 0

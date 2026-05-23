@@ -9,16 +9,35 @@ from dqdoctor.pii_detector import detect_pii_type
 _SEMANTIC_PATTERNS: dict[str, list[str]] = {
     "identifier": ["id"],
     "measure": [
-        "price", "amount", "cost", "total",
-        "fee", "salary", "revenue", "qty", "quantity",
+        "price",
+        "amount",
+        "cost",
+        "total",
+        "fee",
+        "salary",
+        "revenue",
+        "qty",
+        "quantity",
     ],
     "category": [
-        "status", "type", "category", "method",
-        "level", "grade", "class", "region", "gender",
+        "status",
+        "type",
+        "category",
+        "method",
+        "level",
+        "grade",
+        "class",
+        "region",
+        "gender",
     ],
     "timestamp": [
-        "time", "date", "created_at", "updated_at",
-        "deleted_at", "event_time", "order_time",
+        "time",
+        "date",
+        "created_at",
+        "updated_at",
+        "deleted_at",
+        "event_time",
+        "order_time",
     ],
 }
 
@@ -33,14 +52,28 @@ def infer_semantic_type(column_name: str) -> str:
 
 
 _NUMERIC_TYPES = {
-    "TINYINT", "SMALLINT", "INTEGER", "BIGINT",
-    "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT",
-    "FLOAT", "DOUBLE", "DECIMAL", "HUGEINT",
+    "TINYINT",
+    "SMALLINT",
+    "INTEGER",
+    "BIGINT",
+    "UTINYINT",
+    "USMALLINT",
+    "UINTEGER",
+    "UBIGINT",
+    "FLOAT",
+    "DOUBLE",
+    "DECIMAL",
+    "HUGEINT",
 }
 
 _TEMPORAL_TYPES = {
-    "TIMESTAMP", "TIMESTAMPTZ", "DATE", "TIME", "TIMESTAMP_NS",
-    "TIMESTAMP WITH TIME ZONE", "TIMESTAMP WITHOUT TIME ZONE",
+    "TIMESTAMP",
+    "TIMESTAMPTZ",
+    "DATE",
+    "TIME",
+    "TIMESTAMP_NS",
+    "TIMESTAMP WITH TIME ZONE",
+    "TIMESTAMP WITHOUT TIME ZONE",
 }
 
 
@@ -54,7 +87,10 @@ def _is_temporal(dtype: str) -> bool:
 
 
 def _fetch_min_max(
-    con: ConnectionWrapper, table: str, col: str, dtype: str,
+    con: ConnectionWrapper,
+    table: str,
+    col: str,
+    dtype: str,
 ) -> tuple:
     row = con.fetchone(
         f"SELECT MIN({con.quote(col)}), MAX({con.quote(col)}) "
@@ -68,20 +104,19 @@ def _fetch_min_max(
 
 
 def profile_column(
-    con: ConnectionWrapper, table: str, col: dict, row_count: int,
+    con: ConnectionWrapper,
+    table: str,
+    col: dict,
+    row_count: int,
 ) -> ColumnProfile:
     name = col["name"]
     dtype = col["dtype"]
     qcol = con.quote(name)
 
-    null_count = con.fetchone(
-        f"SELECT COUNT(*) FROM {table} WHERE {qcol} IS NULL"
-    )[0]
+    null_count = con.fetchone(f"SELECT COUNT(*) FROM {table} WHERE {qcol} IS NULL")[0]
     null_rate = round(null_count / row_count, 4) if row_count > 0 else 0.0
 
-    distinct_count = con.fetchone(
-        f"SELECT COUNT(DISTINCT {qcol}) FROM {table}"
-    )[0]
+    distinct_count = con.fetchone(f"SELECT COUNT(DISTINCT {qcol}) FROM {table}")[0]
     distinct_rate = round(distinct_count / row_count, 4) if row_count > 0 else 0.0
 
     min_value = None
@@ -92,8 +127,7 @@ def profile_column(
         min_value, max_value = _fetch_min_max(con, table, name, dtype)
 
     sample_rows = con.fetchall(
-        f"SELECT DISTINCT {qcol} FROM {table} "
-        f"WHERE {qcol} IS NOT NULL LIMIT 10"
+        f"SELECT DISTINCT {qcol} FROM {table} WHERE {qcol} IS NOT NULL LIMIT 10"
     )
     sample_values = [r[0] for r in sample_rows]
     if _is_temporal(dtype):
@@ -102,8 +136,7 @@ def profile_column(
     distinct_values: list = []
     if distinct_count <= 20:
         dv_rows = con.fetchall(
-            f"SELECT DISTINCT {qcol} FROM {table} "
-            f"WHERE {qcol} IS NOT NULL ORDER BY {qcol}"
+            f"SELECT DISTINCT {qcol} FROM {table} WHERE {qcol} IS NOT NULL ORDER BY {qcol}"
         )
         distinct_values = [r[0] for r in dv_rows]
         if _is_temporal(dtype):
@@ -134,9 +167,7 @@ def profile_table(db_path: "str | Path", table_name: str) -> ProfileResult:
         qt = con.quote(table_name)
         row_count = con.fetchone(f"SELECT COUNT(*) FROM {qt}")[0]
         columns_meta = get_table_columns(con, table_name)
-        columns = [
-            profile_column(con, qt, col, row_count) for col in columns_meta
-        ]
+        columns = [profile_column(con, qt, col, row_count) for col in columns_meta]
         return ProfileResult(
             db_path=str(db_path),
             table_name=table_name,

@@ -9,13 +9,13 @@ from dqdoctor.models import RuleSuggestion, ValidationResult
 
 
 def _validate_not_null(
-    con: ConnectionWrapper, table: str, rule: RuleSuggestion,
+    con: ConnectionWrapper,
+    table: str,
+    rule: RuleSuggestion,
 ) -> ValidationResult:
     col = con.quote(rule.column)
     total = con.fetchone(f"SELECT COUNT(*) FROM {table}")[0]
-    failed = con.fetchone(
-        f"SELECT COUNT(*) FROM {table} WHERE {col} IS NULL"
-    )[0]
+    failed = con.fetchone(f"SELECT COUNT(*) FROM {table} WHERE {col} IS NULL")[0]
     return ValidationResult(
         rule_id=rule.rule_id,
         rule_type="not_null",
@@ -32,13 +32,13 @@ def _validate_not_null(
 
 
 def _validate_unique(
-    con: ConnectionWrapper, table: str, rule: RuleSuggestion,
+    con: ConnectionWrapper,
+    table: str,
+    rule: RuleSuggestion,
 ) -> ValidationResult:
     col = con.quote(rule.column)
     total = con.fetchone(f"SELECT COUNT(*) FROM {table}")[0]
-    distinct = con.fetchone(
-        f"SELECT COUNT(DISTINCT {col}) FROM {table}"
-    )[0]
+    distinct = con.fetchone(f"SELECT COUNT(DISTINCT {col}) FROM {table}")[0]
     failed = total - distinct
     return ValidationResult(
         rule_id=rule.rule_id,
@@ -56,7 +56,9 @@ def _validate_unique(
 
 
 def _validate_accepted_values(
-    con: ConnectionWrapper, table: str, rule: RuleSuggestion,
+    con: ConnectionWrapper,
+    table: str,
+    rule: RuleSuggestion,
 ) -> ValidationResult:
     col = con.quote(rule.column)
     allowed: list[Any] = rule.params.get("values", [])
@@ -71,12 +73,9 @@ def _validate_accepted_values(
             message="No accepted values defined, skipping.",
         )
     placeholders = ", ".join(["?"] * len(allowed))
-    total = con.fetchone(
-        f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL"
-    )[0]
+    total = con.fetchone(f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL")[0]
     failed = con.fetchone(
-        f"SELECT COUNT(*) FROM {table} "
-        f"WHERE {col} NOT IN ({placeholders}) AND {col} IS NOT NULL",
+        f"SELECT COUNT(*) FROM {table} WHERE {col} NOT IN ({placeholders}) AND {col} IS NOT NULL",
         allowed,
     )[0]
     return ValidationResult(
@@ -87,19 +86,17 @@ def _validate_accepted_values(
         failed_count=failed,
         total_count=total,
         message=(
-            f"All {total} non-null values in '{rule.column}' "
-            f"are in accepted set."
+            f"All {total} non-null values in '{rule.column}' are in accepted set."
             if failed == 0
-            else (
-                f"Found {failed}/{total} values outside accepted set "
-                f"in '{rule.column}'."
-            )
+            else (f"Found {failed}/{total} values outside accepted set in '{rule.column}'.")
         ),
     )
 
 
 def _validate_range(
-    con: ConnectionWrapper, table: str, rule: RuleSuggestion,
+    con: ConnectionWrapper,
+    table: str,
+    rule: RuleSuggestion,
 ) -> ValidationResult:
     col = con.quote(rule.column)
     min_val = rule.params.get("min")
@@ -114,9 +111,7 @@ def _validate_range(
             total_count=0,
             message="No range defined, skipping.",
         )
-    total = con.fetchone(
-        f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL"
-    )[0]
+    total = con.fetchone(f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL")[0]
     failed = con.fetchone(
         f"SELECT COUNT(*) FROM {table} WHERE {col} < ? OR {col} > ?",
         [min_val, max_val],
@@ -129,26 +124,24 @@ def _validate_range(
         failed_count=failed,
         total_count=total,
         message=(
-            f"All {total} values in '{rule.column}' "
-            f"are within [{min_val}, {max_val}]."
+            f"All {total} values in '{rule.column}' are within [{min_val}, {max_val}]."
             if failed == 0
             else (
-                f"Found {failed}/{total} values outside "
-                f"[{min_val}, {max_val}] in '{rule.column}'."
+                f"Found {failed}/{total} values outside [{min_val}, {max_val}] in '{rule.column}'."
             )
         ),
     )
 
 
 def _validate_freshness(
-    con: ConnectionWrapper, table: str, rule: RuleSuggestion,
+    con: ConnectionWrapper,
+    table: str,
+    rule: RuleSuggestion,
 ) -> ValidationResult:
     col = con.quote(rule.column)
     max_age_hours = rule.params.get("max_age_hours", 24)
 
-    row = con.fetchone(
-        f"SELECT MAX({col}) FROM {table} WHERE {col} IS NOT NULL"
-    )
+    row = con.fetchone(f"SELECT MAX({col}) FROM {table} WHERE {col} IS NOT NULL")
 
     if row is None or row[0] is None:
         return ValidationResult(
@@ -178,8 +171,7 @@ def _validate_freshness(
         failed_count=0 if passed else 1,
         total_count=1,
         message=(
-            f"Latest value in '{rule.column}' is {age_hours:.1f}h old "
-            f"(max {max_age_hours}h)."
+            f"Latest value in '{rule.column}' is {age_hours:.1f}h old (max {max_age_hours}h)."
             if passed
             else (
                 f"Data in '{rule.column}' is {age_hours:.1f}h old, "
@@ -210,15 +202,17 @@ def validate_rules(
         for rule in rules:
             validator = _VALIDATORS.get(rule.rule_type)
             if validator is None:
-                results.append(ValidationResult(
-                    rule_id=rule.rule_id,
-                    rule_type=rule.rule_type,
-                    column=rule.column,
-                    passed=True,
-                    failed_count=0,
-                    total_count=0,
-                    message=f"Suggested by {rule.source}: {rule.reason}",
-                ))
+                results.append(
+                    ValidationResult(
+                        rule_id=rule.rule_id,
+                        rule_type=rule.rule_type,
+                        column=rule.column,
+                        passed=True,
+                        failed_count=0,
+                        total_count=0,
+                        message=f"Suggested by {rule.source}: {rule.reason}",
+                    )
+                )
                 continue
             results.append(validator(con, quoted_table, rule))
         return results

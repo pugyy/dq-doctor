@@ -35,9 +35,7 @@ console = Console()
 
 @app.command()
 def demo(
-    output: Optional[str] = typer.Option(
-        None, "--output", "-o", help="Output DuckDB path"
-    ),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output DuckDB path"),
     dirty: bool = typer.Option(
         False, "--dirty", help="Generate dirty demo with intentional data quality issues"
     ),
@@ -50,22 +48,18 @@ def demo(
         console.print(f"[green]Demo database created:[/green] {db_path}")
     tables = list_tables(db_path)
     console.print(f"[blue]Tables:[/blue] {', '.join(tables)}")
-    console.print(
-        f"[dim]Try: dqdoctor check --db {db_path} "
-        f"--table {tables[0]}[/dim]"
-    )
+    console.print(f"[dim]Try: dqdoctor check --db {db_path} --table {tables[0]}[/dim]")
 
 
 @app.command()
 def tables(
-    db: Optional[str] = typer.Option(
-        None, "--db", help="Path to database"
-    ),
+    db: Optional[str] = typer.Option(None, "--db", help="Path to database"),
     config: Optional[str] = typer.Option(
         None, "--config", help="Path to .dqdoctor.yml config file"
     ),
 ) -> None:
     from dqdoctor.config import load_config as _load_config
+
     effective_db = _load_config(config).db or db
     if not effective_db:
         console.print("[red]Error: --db is required.[/red]")
@@ -77,9 +71,7 @@ def tables(
 
 
 def _print_profile(profile_result) -> None:
-    table = Table(
-        title=f"Profile: {profile_result.table_name} ({profile_result.row_count} rows)"
-    )
+    table = Table(title=f"Profile: {profile_result.table_name} ({profile_result.row_count} rows)")
     table.add_column("Column", style="bold")
     table.add_column("Type")
     table.add_column("Null Rate", justify="right")
@@ -196,21 +188,24 @@ def _run_check(
             sql_results = execute_sql_rules(db, table, sql_rule_defs)
             results.extend(sql_results)
             for sr in sql_results:
-                rules.append(RuleSuggestion(
-                    rule_id=sr.rule_id,
-                    rule_type="sql",
-                    column="*",
-                    confidence=0.9,
-                    severity="medium",
-                    reason=sr.message,
-                    source="config",
-                ))
+                rules.append(
+                    RuleSuggestion(
+                        rule_id=sr.rule_id,
+                        rule_type="sql",
+                        column="*",
+                        confidence=0.9,
+                        severity="medium",
+                        reason=sr.message,
+                        source="config",
+                    )
+                )
 
     from dqdoctor.models import PIIFinding, RefIntegrityIssue
 
     pii_findings = [
         PIIFinding(column=c.name, pii_type=c.pii_type, sample_count=0)
-        for c in profile_result.columns if c.pii_type
+        for c in profile_result.columns
+        if c.pii_type
     ]
 
     refint_issues = []
@@ -222,29 +217,31 @@ def _run_check(
             ri_results = check_referential_integrity(db)
             for ri in ri_results:
                 if ri.from_table == table or ri.to_table == table:
-                    refint_issues.append(RefIntegrityIssue(
-                        from_table=ri.from_table,
-                        from_column=ri.from_column,
-                        to_table=ri.to_table,
-                        to_column=ri.to_column,
-                        orphan_rows=ri.orphan_rows,
-                        total_rows=ri.total_rows,
-                        sample_orphans=ri.sample_orphans,
-                    ))
+                    refint_issues.append(
+                        RefIntegrityIssue(
+                            from_table=ri.from_table,
+                            from_column=ri.from_column,
+                            to_table=ri.to_table,
+                            to_column=ri.to_column,
+                            orphan_rows=ri.orphan_rows,
+                            total_rows=ri.total_rows,
+                            sample_orphans=ri.sample_orphans,
+                        )
+                    )
         except Exception:
             pass
 
     report = build_report(
-        profile_result, rules, results,
+        profile_result,
+        rules,
+        results,
         pii_findings=pii_findings,
         refint_issues=refint_issues,
     )
     report_path = save_html(report, out)
 
     score_color = (
-        "green" if report.quality_score >= 80
-        else "yellow" if report.quality_score >= 50
-        else "red"
+        "green" if report.quality_score >= 80 else "yellow" if report.quality_score >= 50 else "red"
     )
 
     console.print()
@@ -269,17 +266,14 @@ def _run_check(
         for r in rules:
             source_label = r.source if r.source != "heuristic" else "auto"
             console.print(
-                f"  [dim]{r.rule_type}.{r.column}: {source_label} "
-                f"(severity={r.severity})[/dim]"
+                f"  [dim]{r.rule_type}.{r.column}: {source_label} (severity={r.severity})[/dim]"
             )
         for log_line in config_log:
             console.print(f"  [dim]{log_line}[/dim]")
         if rules_file:
             disabled = load_disabled_keys(rules_file)
             for rk in disabled:
-                console.print(
-                    f"  [dim]{rk[0]}.{rk[1]}: disabled by {rules_file}[/dim]"
-                )
+                console.print(f"  [dim]{rk[0]}.{rk[1]}: disabled by {rules_file}[/dim]")
 
     if pii_findings:
         console.print("[yellow]PII detected:[/yellow]")
@@ -310,30 +304,16 @@ def check(
     db: Optional[str] = typer.Option(
         None, "--db", help="Path to database (or set in .dqdoctor.yml)"
     ),
-    table: Optional[str] = typer.Option(
-        None, "--table", help="Table name to check"
-    ),
-    all_tables: bool = typer.Option(
-        False, "--all-tables", help="Check all tables in the database"
-    ),
-    out: str = typer.Option(
-        "report.html", "--out", help="Output HTML report path"
-    ),
-    ci: bool = typer.Option(
-        False, "--ci", help="CI mode: exit with non-zero code on failures"
-    ),
+    table: Optional[str] = typer.Option(None, "--table", help="Table name to check"),
+    all_tables: bool = typer.Option(False, "--all-tables", help="Check all tables in the database"),
+    out: str = typer.Option("report.html", "--out", help="Output HTML report path"),
+    ci: bool = typer.Option(False, "--ci", help="CI mode: exit with non-zero code on failures"),
     max_failures: int = typer.Option(
         0, "--max-failures", help="Max allowed failures (CI mode only)"
     ),
-    llm_key: Optional[str] = typer.Option(
-        None, "--llm-key", help="LLM API key for enhanced rules"
-    ),
-    llm_base_url: Optional[str] = typer.Option(
-        None, "--llm-base-url", help="LLM API base URL"
-    ),
-    llm_model: str = typer.Option(
-        "deepseek-chat", "--llm-model", help="LLM model name"
-    ),
+    llm_key: Optional[str] = typer.Option(None, "--llm-key", help="LLM API key for enhanced rules"),
+    llm_base_url: Optional[str] = typer.Option(None, "--llm-base-url", help="LLM API base URL"),
+    llm_model: str = typer.Option("deepseek-chat", "--llm-model", help="LLM model name"),
     rules: Optional[str] = typer.Option(
         None, "--rules", help="Path to custom rules file (JSON/YAML)"
     ),
@@ -341,12 +321,10 @@ def check(
         None, "--config", help="Path to .dqdoctor.yml config file"
     ),
     save_profile: Optional[str] = typer.Option(
-        None, "--save-profile",
-        help="Directory to save profile JSON for drift comparison"
+        None, "--save-profile", help="Directory to save profile JSON for drift comparison"
     ),
     verbose_rules: bool = typer.Option(
-        False, "--verbose-rules",
-        help="Show rule source and override details"
+        False, "--verbose-rules", help="Show rule source and override details"
     ),
 ) -> None:
     from dqdoctor.config import load_config
@@ -354,9 +332,7 @@ def check(
     dq_config = load_config(config)
     effective_db = dq_config.db or db
     if not effective_db:
-        console.print(
-            "[red]Error: --db is required (or set db in .dqdoctor.yml).[/red]"
-        )
+        console.print("[red]Error: --db is required (or set db in .dqdoctor.yml).[/red]")
         raise typer.Exit(1)
     if all_tables:
         table_list = list_tables(effective_db)
@@ -365,34 +341,43 @@ def check(
             raise typer.Exit(0)
         total_failures = 0
         for i, t in enumerate(table_list):
-            table_out = str(Path(out).with_name(
-                f"{Path(out).stem}_{t}{Path(out).suffix}"
-            ))
+            table_out = str(Path(out).with_name(f"{Path(out).stem}_{t}{Path(out).suffix}"))
             failures = _run_check(
-                effective_db, t, table_out, ci=ci, max_failures=max_failures,
-                llm_key=llm_key, llm_base_url=llm_base_url,
-                llm_model=llm_model, rules_file=rules,
-                config=dq_config, save_profile_dir=save_profile,
+                effective_db,
+                t,
+                table_out,
+                ci=ci,
+                max_failures=max_failures,
+                llm_key=llm_key,
+                llm_base_url=llm_base_url,
+                llm_model=llm_model,
+                rules_file=rules,
+                config=dq_config,
+                save_profile_dir=save_profile,
                 verbose_rules=verbose_rules,
             )
             total_failures += failures
         if ci and total_failures > 0:
             console.print(
-                f"[red]CI: {total_failures} total failures, "
-                f"threshold is {max_failures}.[/red]"
+                f"[red]CI: {total_failures} total failures, threshold is {max_failures}.[/red]"
             )
             raise typer.Exit(1)
     else:
         if not table:
-            console.print(
-                "[red]Error: --table is required when --all-tables is not set.[/red]"
-            )
+            console.print("[red]Error: --table is required when --all-tables is not set.[/red]")
             raise typer.Exit(1)
         failures = _run_check(
-            effective_db, table, out, ci=ci, max_failures=max_failures,
-            llm_key=llm_key, llm_base_url=llm_base_url,
-            llm_model=llm_model, rules_file=rules,
-            config=dq_config, save_profile_dir=save_profile,
+            effective_db,
+            table,
+            out,
+            ci=ci,
+            max_failures=max_failures,
+            llm_key=llm_key,
+            llm_base_url=llm_base_url,
+            llm_model=llm_model,
+            rules_file=rules,
+            config=dq_config,
+            save_profile_dir=save_profile,
             verbose_rules=verbose_rules,
         )
         if ci and failures > 0:
@@ -413,17 +398,19 @@ def export(
     db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
     table: str = typer.Option(..., "--table", help="Table name to export"),
     fmt: str = typer.Option(
-        ..., "--format",
+        ...,
+        "--format",
         help="Export format: dbt, gx, markdown, soda, deequ",
     ),
     out: str = typer.Option(
-        ..., "--out", help="Output file path",
+        ...,
+        "--out",
+        help="Output file path",
     ),
 ) -> None:
     if fmt not in _EXPORT_FORMATS:
         console.print(
-            f"[red]Unknown format '{fmt}'. "
-            f"Choose from: {', '.join(_EXPORT_FORMATS)}[/red]"
+            f"[red]Unknown format '{fmt}'. Choose from: {', '.join(_EXPORT_FORMATS)}[/red]"
         )
         raise typer.Exit(1)
 
@@ -437,9 +424,7 @@ def export(
 @app.command()
 def fk(
     db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
-    min_overlap: float = typer.Option(
-        0.5, "--min-overlap", help="Minimum overlap rate threshold"
-    ),
+    min_overlap: float = typer.Option(0.5, "--min-overlap", help="Minimum overlap rate threshold"),
 ) -> None:
     from dqdoctor.fk_discovery import discover_foreign_keys
 
@@ -481,10 +466,7 @@ def correlate(
         return
 
     for c in corrs:
-        console.print(
-            f"  [{c.correlation_type}] {c.description} "
-            f"(confidence: {c.confidence:.0%})"
-        )
+        console.print(f"  [{c.correlation_type}] {c.description} (confidence: {c.confidence:.0%})")
 
 
 @app.command()
@@ -502,8 +484,7 @@ def drift(
     for d in result.drifts:
         color = {"high": "red", "medium": "yellow", "low": "green"}[d.severity]
         console.print(
-            f"  [{color}]{d.severity.upper()}[/{color}] "
-            f"{d.column}.{d.metric}: {d.change}"
+            f"  [{color}]{d.severity.upper()}[/{color}] {d.column}.{d.metric}: {d.change}"
         )
 
 
@@ -523,10 +504,7 @@ def lineage(
     console.print(f"[bold]{result.summary}[/bold]")
     for edge in result.edges:
         icon = "FK" if edge.lineage_type == "foreign_key" else "CORR"
-        console.print(
-            f"  [{icon}] {edge.description} "
-            f"(confidence: {edge.confidence:.0%})"
-        )
+        console.print(f"  [{icon}] {edge.description} (confidence: {edge.confidence:.0%})")
 
 
 @app.command()
@@ -536,6 +514,7 @@ def serve(
     port: int = typer.Option(8501, "--port", help="Port to bind"),
 ) -> None:
     from dqdoctor.dashboard import run_dashboard
+
     run_dashboard(db, host=host, port=port)
 
 
@@ -577,6 +556,7 @@ def rules_init(
 
     def _serialize_params(params: dict) -> dict:
         from decimal import Decimal
+
         result = {}
         for k, v in params.items():
             if isinstance(v, Decimal):
@@ -633,6 +613,7 @@ def doctor() -> None:
     pkg_version = "unknown"
     try:
         from dqdoctor import __version__
+
         pkg_version = __version__
     except Exception:
         pass
@@ -640,6 +621,7 @@ def doctor() -> None:
 
     try:
         import duckdb
+
         checks.append(("DuckDB", True, duckdb.__version__))
     except ImportError:
         checks.append(("DuckDB", False, "not installed"))
@@ -653,9 +635,7 @@ def doctor() -> None:
     config_path = Path(".dqdoctor.yml")
     config_ok = config_path.exists()
     config_msg = (
-        str(config_path.resolve())
-        if config_ok
-        else "not found (optional, run dqdoctor init)"
+        str(config_path.resolve()) if config_ok else "not found (optional, run dqdoctor init)"
     )
     checks.append(("Config file", config_ok, config_msg))
 
@@ -685,8 +665,10 @@ def doctor() -> None:
     for name, ok, detail in checks:
         is_optional = name.startswith(non_core_prefixes) or name == "Config file"
         icon = (
-            "[green]OK[/green]" if ok
-            else "[yellow]--[/yellow]" if is_optional
+            "[green]OK[/green]"
+            if ok
+            else "[yellow]--[/yellow]"
+            if is_optional
             else "[red]MISS[/red]"
         )
         if not ok and not is_optional:

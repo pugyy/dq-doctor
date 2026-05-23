@@ -69,8 +69,7 @@ def suggest_rules_llm(
         from openai import OpenAI
     except ImportError:
         raise ImportError(
-            "openai package is required for LLM features. "
-            "Install with: pip install dq-doctor[llm]"
+            "openai package is required for LLM features. Install with: pip install dq-doctor[llm]"
         )
 
     client = OpenAI(api_key=api_key, base_url=base_url)
@@ -88,14 +87,16 @@ def suggest_rules_llm(
 
     rules: list[RuleSuggestion] = []
     for i, raw in enumerate(raw_rules):
-        rules.append(RuleSuggestion(
-            rule_id=f"llm.{raw.get('column', 'unknown')}.{i}",
-            rule_type=raw.get("rule_type", "unknown"),
-            column=raw.get("column", ""),
-            params=raw.get("params", {}),
-            confidence=min(1.0, max(0.0, float(raw.get("confidence", 0.5)))),
-            severity=raw.get("severity", "medium"),
-            reason=raw.get("reason", "Suggested by LLM."),
-            source="llm",
-        ))
+        rules.append(
+            RuleSuggestion(
+                rule_id=f"llm.{raw.get('column', 'unknown')}.{i}",
+                rule_type=raw.get("rule_type", "unknown"),
+                column=raw.get("column", ""),
+                params=raw.get("params", {}),
+                confidence=min(1.0, max(0.0, float(raw.get("confidence", 0.5)))),
+                severity=raw.get("severity", "medium"),
+                reason=raw.get("reason", "Suggested by LLM."),
+                source="llm",
+            )
+        )
     return rules

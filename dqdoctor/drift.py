@@ -39,7 +39,8 @@ def load_profile(path: "str | Path") -> ProfileResult:
 
 
 def compare_profiles(
-    old: ProfileResult, new: ProfileResult,
+    old: ProfileResult,
+    new: ProfileResult,
     null_rate_threshold: float = 0.05,
     distinct_rate_threshold: float = 0.1,
     row_count_threshold: float = 0.2,
@@ -56,65 +57,87 @@ def compare_profiles(
         )
 
     if abs(new.row_count - old.row_count) / max(old.row_count, 1) > row_count_threshold:
-        drifts.append(ColumnDrift(
-            column="*", metric="row_count",
-            old_value=old.row_count, new_value=new.row_count,
-            change=f"rows changed from {old.row_count} to {new.row_count}",
-            severity="high",
-        ))
+        drifts.append(
+            ColumnDrift(
+                column="*",
+                metric="row_count",
+                old_value=old.row_count,
+                new_value=new.row_count,
+                change=f"rows changed from {old.row_count} to {new.row_count}",
+                severity="high",
+            )
+        )
 
     old_cols = {c.name: c for c in old.columns}
     new_cols = {c.name: c for c in new.columns}
 
     for name in set(old_cols) | set(new_cols):
         if name not in new_cols:
-            drifts.append(ColumnDrift(
-                column=name, metric="existence",
-                old_value="present", new_value="missing",
-                change=f"column '{name}' was removed",
-                severity="high",
-            ))
+            drifts.append(
+                ColumnDrift(
+                    column=name,
+                    metric="existence",
+                    old_value="present",
+                    new_value="missing",
+                    change=f"column '{name}' was removed",
+                    severity="high",
+                )
+            )
             continue
         if name not in old_cols:
-            drifts.append(ColumnDrift(
-                column=name, metric="existence",
-                old_value="missing", new_value="present",
-                change=f"column '{name}' was added",
-                severity="low",
-            ))
+            drifts.append(
+                ColumnDrift(
+                    column=name,
+                    metric="existence",
+                    old_value="missing",
+                    new_value="present",
+                    change=f"column '{name}' was added",
+                    severity="low",
+                )
+            )
             continue
 
         oc = old_cols[name]
         nc = new_cols[name]
 
         if abs(nc.null_rate - oc.null_rate) > null_rate_threshold:
-            drifts.append(ColumnDrift(
-                column=name, metric="null_rate",
-                old_value=round(oc.null_rate, 4),
-                new_value=round(nc.null_rate, 4),
-                change=f"null rate changed from {oc.null_rate:.2%} to {nc.null_rate:.2%}",
-                severity="high" if nc.null_rate > oc.null_rate else "low",
-            ))
+            drifts.append(
+                ColumnDrift(
+                    column=name,
+                    metric="null_rate",
+                    old_value=round(oc.null_rate, 4),
+                    new_value=round(nc.null_rate, 4),
+                    change=f"null rate changed from {oc.null_rate:.2%} to {nc.null_rate:.2%}",
+                    severity="high" if nc.null_rate > oc.null_rate else "low",
+                )
+            )
 
         if abs(nc.distinct_rate - oc.distinct_rate) > distinct_rate_threshold:
-            drifts.append(ColumnDrift(
-                column=name, metric="distinct_rate",
-                old_value=round(oc.distinct_rate, 4),
-                new_value=round(nc.distinct_rate, 4),
-                change=(
-                    f"distinct rate changed from "
-                    f"{oc.distinct_rate:.2%} to {nc.distinct_rate:.2%}"
-                ),
-                severity="medium",
-            ))
+            drifts.append(
+                ColumnDrift(
+                    column=name,
+                    metric="distinct_rate",
+                    old_value=round(oc.distinct_rate, 4),
+                    new_value=round(nc.distinct_rate, 4),
+                    change=(
+                        f"distinct rate changed from "
+                        f"{oc.distinct_rate:.2%} to {nc.distinct_rate:.2%}"
+                    ),
+                    severity="medium",
+                )
+            )
 
         if oc.dtype != nc.dtype:
-            drifts.append(ColumnDrift(
-                column=name, metric="dtype",
-                old_value=oc.dtype, new_value=nc.dtype,
-                change=f"type changed from {oc.dtype} to {nc.dtype}",
-                severity="high",
-            ))
+            drifts.append(
+                ColumnDrift(
+                    column=name,
+                    metric="dtype",
+                    old_value=oc.dtype,
+                    new_value=nc.dtype,
+                    change=f"type changed from {oc.dtype} to {nc.dtype}",
+                    severity="high",
+                )
+            )
 
     high = sum(1 for d in drifts if d.severity == "high")
     medium = sum(1 for d in drifts if d.severity == "medium")
