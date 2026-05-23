@@ -34,8 +34,8 @@ def _rule_to_dbt_test(rule: RuleSuggestion) -> Any | None:
         min_val = _sanitize(rule.params.get("min"))
         max_val = _sanitize(rule.params.get("max"))
         return [
-            {"dbt_utils.expression_is_true": {"expression": f">= {min_val}"}},
-            {"dbt_utils.expression_is_true": {"expression": f"<= {max_val}"}},
+            {"dbt_utils.expression_is_true": {"expression": f"{rule.column} >= {min_val}"}},
+            {"dbt_utils.expression_is_true": {"expression": f"{rule.column} <= {max_val}"}},
         ]
     return None
 
