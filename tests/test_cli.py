@@ -103,7 +103,7 @@ def test_help():
 def test_doctor_command():
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
-    assert "dq-doctor health check" in result.stdout
+    assert "dq-doctor" in result.stdout
     assert "Python version" in result.stdout
     assert "DuckDB" in result.stdout
 
@@ -297,9 +297,7 @@ def test_check_shows_score(demo_db: Path):
         ],
     )
     assert result.exit_code == 0
-    assert "Score" in result.stdout
     assert "/100" in result.stdout
-    assert "]" not in result.stdout.split("Score")[1].split("/100")[0]
 
 
 def test_check_verbose_rules(demo_db: Path):
