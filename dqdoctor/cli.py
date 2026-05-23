@@ -48,7 +48,8 @@ def demo(
         console.print(f"[green]Demo database created:[/green] {db_path}")
     tables = list_tables(db_path)
     console.print(f"[blue]Tables:[/blue] {', '.join(tables)}")
-    console.print(f"[dim]Try: dqdoctor check --db {db_path} --table {tables[0]}[/dim]")
+    if tables:
+        console.print(f"[dim]Try: dqdoctor check --db {db_path} --table {tables[0]}[/dim]")
 
 
 @app.command()
@@ -672,7 +673,6 @@ def doctor() -> None:
             else "[red]MISS[/red]"
         )
         if not ok and not is_optional:
-            core_ok = False
             core_ok = False
         table.add_row(name, icon, detail)
     console.print(table)
