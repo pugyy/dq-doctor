@@ -19,7 +19,7 @@ def export_soda_cl(
             lines.append(f"  - duplicate_count({rule.column}) = 0")
         elif rule.rule_type == "accepted_values":
             values = rule.params.get("values", [])
-            vals_str = ", ".join(f"'{v}'" for v in values)
+            vals_str = ", ".join("'" + str(v).replace("'", "''") + "'" for v in values)
             lines.append(f"  - invalid_count({rule.column}) = 0: {{ values: [{vals_str}] }}")
         elif rule.rule_type == "range":
             min_v = rule.params.get("min")
