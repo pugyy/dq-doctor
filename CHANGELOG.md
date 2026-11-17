@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.0.8 — 2026-11-18
+
+Maintenance release after the repository rebuild. No runtime behavior changed.
+
+### Fixed
+
+- The SQL-rule bypass fixture now writes `secret.parquet` inside its temporary
+  directory and asserts that the file exists, instead of leaving a `LEAKED`
+  fixture in the caller's working directory.
+- Corrected stale documentation: CI status, contributor setup, supported test
+  count/structure, and the dbt minimum version.
+- Removed an unsuitable meta sentence from the v1.0.6 changelog.
+
+### Verification
+
+- 216 tests passed, 11 skipped with optional backend/extras absent in this
+  environment; Ruff clean.
+- Wheel and sdist rebuilt from the fixed tree.
+
+### Upgrade
+
+```bash
+pip install -U dq-doctor==1.0.8
+```
+
 ## v1.0.7 — 2026-11-17
 
 The seventh audit round closed the last release blockers. Most of them were

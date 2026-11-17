@@ -1,7 +1,7 @@
 # dq-doctor 1.0 limitations
 
 Honest statement of what is verified, what is approximate, and what is not
-covered, as of 1.0.7.
+covered, as of 1.0.8.
 
 ## Verified (executed locally)
 
