@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.0.6
+
+Sixth audit pass: the "final examiner" was holding the developer's home
+address. Product fixes from 1.0.5 held; two meta-bugs fixed.
+
+### Fixed
+
+- **Live tests dialled hardcoded local ports and ignored `DQTEST_*`.** The
+  first CI run would have failed not because the services were broken but
+  because the tests never looked at the addresses CI injects.
+  `MYSQL_URL`/`PG_URL` now come from `DQTEST_MYSQL`/`DQTEST_PG` with local
+  defaults. Pinned by subprocess tests: dead addresses + required mode
+  fail; env-pointed addresses pass; missing admin under required mode
+  fails instead of skipping.
+- **`parse_spec` rejected the URL this module itself emits.** The docs say
+  URLs normalize to `postgresql+psycopg://`, but the entrypoint accepted
+  only bare `postgres(postgresql)://`. All forms (`postgres`,
+  `postgresql`, `postgres+psycopg`, `postgresql+psycopg`,
+  `postgresql+psycopg2`) now normalize to `postgresql+psycopg://`, and
+  normalization is idempotent - pinned by a round-trip test.
+- `DQ_LIVE_REQUIRED=1` without `DQTEST_MYSQL_ADMIN` fails instead of
+  skipping.
+
+208 tests, 84.2% coverage.
+
 ## v1.0.5
 
 Fifth audit pass. The 1.0.4 fixes held; two real bugs were hiding behind a

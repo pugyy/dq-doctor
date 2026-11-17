@@ -13,6 +13,11 @@ Set ``DQ_LIVE_REQUIRED=1`` to turn unreachable servers into failures (CI):
 a green skip on a broken service hides exactly the regressions this file
 exists to catch. Only *connectivity* errors skip - a driver bug or an
 assertion raised during the probe fails loudly instead.
+
+Connection strings come from ``DQTEST_MYSQL`` / ``DQTEST_PG`` (the same
+variables CI injects); the defaults below are this machine's local
+instances. Hardcoding the defaults broke the first CI run - the tests
+dialled the local ports and ignored the services GitHub provides.
 """
 from __future__ import annotations
 
@@ -23,8 +28,15 @@ from sqlalchemy.exc import OperationalError
 
 from dqdoctor.datasources import DatasourceError, resolve
 
+MYSQL_URL = os.environ.get(
+    "DQTEST_MYSQL", "mysql://dqtest:dqtest@127.0.0.1:13306/dqtest"
+)
+PG_URL = os.environ.get(
+    "DQTEST_PG", "postgresql://postgres:@127.0.0.1:3361/dqtest"
+)
 
-def _live(url_env: str, url: str):
+
+def _reachable_server(url_env: str, url: str):
     try:
         ds = resolve(url)
         con = ds.open()
@@ -36,13 +48,9 @@ def _live(url_env: str, url: str):
     return ds
 
 
-MYSQL_URL = "mysql://dqtest:dqtest@127.0.0.1:13306/dqtest"
-PG_URL = "postgresql://postgres:@127.0.0.1:3361/dqtest"
-
-
 def test_mysql_declared_fk_uses_current_database():
     """Default-database MySQL must still find declared foreign keys."""
-    ds = _live("DQTEST_MYSQL", MYSQL_URL)
+    ds = _reachable_server("DQTEST_MYSQL", MYSQL_URL)
     # a plain URL has no ?schema=, so mysql_schema is None
     assert ds.spec.schema is None or ds.spec.schema == "dqtest"
 
@@ -87,8 +95,10 @@ def test_mysql_schema_selects_that_database():
     """
     admin_url = os.environ.get("DQTEST_MYSQL_ADMIN")
     if not admin_url:
+        if os.environ.get("DQ_LIVE_REQUIRED"):
+            pytest.fail("DQ_LIVE_REQUIRED set but DQTEST_MYSQL_ADMIN is missing")
         pytest.skip("needs DQTEST_MYSQL_ADMIN to create a second database")
-    _live("DQTEST_MYSQL", MYSQL_URL)
+    _reachable_server("DQTEST_MYSQL", MYSQL_URL)
 
     from dqdoctor.datasources import resolve as _resolve
 
@@ -148,7 +158,7 @@ def test_mysql_schema_selects_that_database():
 
 def test_postgres_read_only_false_allows_ddl():
     """`open(read_only=False)` must actually be writable on PostgreSQL."""
-    ds = _live("DQTEST_PG", PG_URL)
+    ds = _reachable_server("DQTEST_PG", PG_URL)
     con = ds.open(read_only=False)
     try:
         con._raw.exec_driver_sql("DROP TABLE IF EXISTS rw_probe")
@@ -161,7 +171,7 @@ def test_postgres_read_only_false_allows_ddl():
 def test_postgres_read_only_true_blocks_ddl():
     from sqlalchemy.exc import InternalError as SAInternalError
 
-    ds = _live("DQTEST_PG", PG_URL)
+    ds = _reachable_server("DQTEST_PG", PG_URL)
     con = ds.open(read_only=True)
     try:
         with pytest.raises(SAInternalError):
@@ -174,7 +184,7 @@ def test_postgres_read_only_true_blocks_ddl():
 def test_mysql_read_only_true_blocks_writes():
     from sqlalchemy.exc import OperationalError as SAOperationalError
 
-    ds = _live("DQTEST_MYSQL", MYSQL_URL)
+    ds = _reachable_server("DQTEST_MYSQL", MYSQL_URL)
     con = ds.open(read_only=True)
     try:
         with pytest.raises(SAOperationalError):
@@ -186,7 +196,7 @@ def test_mysql_read_only_true_blocks_writes():
 
 def test_engine_enforces_read_only_even_if_open_is_writable():
     """The check engine sets the session flag itself (belt and braces)."""
-    ds = _live("DQTEST_PG", PG_URL)
+    ds = _reachable_server("DQTEST_PG", PG_URL)
     from dqdoctor.contract import Contract, TableRules
     from dqdoctor.engine import CheckEngine
     from dqdoctor.models import RuleSpec, RuleStatus

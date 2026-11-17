@@ -141,16 +141,18 @@ def redact_url(url: str) -> str:
 def _sql_url(spec: str) -> tuple[str, str, str | None]:
     """Normalize a SQL URL to (kind, sqlalchemy_url, schema).
 
-    - PostgreSQL: the driver is pinned to ``postgresql+psycopg://`` so the
-      URL resolves to psycopg3 on SQLAlchemy 2.0 *and* 2.1 (a bare
-      ``postgresql://`` picks whichever driver the installed SQLAlchemy
-      generation defaults to, which broke one-version-or-the-other).
+    - PostgreSQL: every accepted form (``postgres``, ``postgresql``,
+      ``postgresql+psycopg``, ``postgres+psycopg``, ``postgresql+psycopg2``)
+      normalizes to ``postgresql+psycopg://`` - including URLs this module
+      itself produced earlier, so contract/config round-trips work. The
+      pinned driver resolves identically on SQLAlchemy 2.0 and 2.1.
     - MySQL ``?schema=`` **replaces** the database segment: appending
       produced ``dqtest/other``, which MySQL rejects with access denied.
     """
     parts = urlsplit(spec)
     scheme = parts.scheme.lower()
-    if scheme in ("postgres", "postgresql"):
+    if scheme in ("postgres", "postgresql", "postgres+psycopg",
+                  "postgresql+psycopg", "postgresql+psycopg2"):
         kind = "postgresql"
         url = spec.replace(f"{parts.scheme}://", "postgresql+psycopg://", 1)
     elif scheme in ("mysql", "mysql+pymysql"):
@@ -159,8 +161,8 @@ def _sql_url(spec: str) -> tuple[str, str, str | None]:
     else:
         raise DatasourceError(
             f"Unsupported database scheme {scheme!r} in {redact_url(spec)}. "
-            "Supported: postgresql://, mysql://, DuckDB file path, "
-            "CSV/Parquet/JSON file or directory."
+            "Supported: postgresql://, postgresql+psycopg://, mysql://, "
+            "DuckDB file path, CSV/Parquet/JSON file or directory."
         )
     schema = None
     query = parts.query
