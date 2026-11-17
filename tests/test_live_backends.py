@@ -8,10 +8,18 @@ Both bugs were invisible to DuckDB-only testing:
 2. ``DataSource.open(read_only=False)`` still forced a read-only PostgreSQL
    session because the flag was hardcoded in ``connect_args``; fixtures and
    maintenance tooling then could not even DROP a table.
+
+Set ``DQ_LIVE_REQUIRED=1`` to turn unreachable servers into failures (CI):
+a green skip on a broken service hides exactly the regressions this file
+exists to catch. Only *connectivity* errors skip - a driver bug or an
+assertion raised during the probe fails loudly instead.
 """
 from __future__ import annotations
 
+import os
+
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from dqdoctor.datasources import DatasourceError, resolve
 
@@ -19,9 +27,12 @@ from dqdoctor.datasources import DatasourceError, resolve
 def _live(url_env: str, url: str):
     try:
         ds = resolve(url)
-        ds.open().close()
-    except (DatasourceError, Exception):  # noqa: BLE001 - probe only
-        pytest.skip(f"{url_env} not reachable")
+        con = ds.open()
+    except (OperationalError, DatasourceError) as exc:
+        if os.environ.get("DQ_LIVE_REQUIRED"):
+            pytest.fail(f"{url_env} required but unreachable: {exc}")
+        pytest.skip(f"{url_env} not reachable: {exc}")
+    con.close()
     return ds
 
 

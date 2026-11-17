@@ -50,11 +50,13 @@ _IO_FUNCTIONS = (
 )
 
 # DuckDB replacement scans: a single-quoted literal used as a *table* source
-# is read from disk. It appears after FROM, after JOIN, or after a comma in a
-# table list, so all three forms are matched. (Quoted identifiers are not
-# paths and are left alone.)
+# is read from disk. Only FROM/JOIN positions are matched. A comma branch was
+# tried and reverted: it fired on every function-call argument
+# (`IN ('ok','bad')`, `COALESCE(a,'x')`, `replace(name,'a','b')`), which is
+# day-one SQL, while the comma-join table form (`FROM t, 'x'`) is rejected
+# by the engine guards below anyway.
 _REPLACEMENT_SCAN = re.compile(
-    r"(?:\bfrom|\bjoin|,)\s*'(?:''|[^'])*'", re.IGNORECASE
+    r"(?:\bfrom|\bjoin)\s*'(?:''|[^'])*'", re.IGNORECASE
 )
 
 # A leading parenthesis is legal: `(SELECT 1) UNION (SELECT 2)`.

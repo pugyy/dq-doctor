@@ -207,11 +207,41 @@ def test_file_source_join_bypasses_not_executed(tmp_root, template, monkeypatch)
     assert "LEAKED" not in result.message
 
 
-def test_policy_rejects_join_and_comma_replacement_scans():
-    """Belt and braces: the policy also refuses these shapes."""
+def test_policy_rejects_join_replacement_scans():
+    """The policy refuses FROM/JOIN literal table sources and metadata readers."""
     for statement in (
         "SELECT count(*) FROM t JOIN '/tmp/p.parquet' q ON true",
-        "SELECT * FROM t, '/tmp/p.parquet'",
+        "SELECT * FROM '/tmp/p.parquet'",
         "SELECT * FROM parquet_metadata('/tmp/p.parquet')",
     ):
         assert read_only_problem(statement) is not None, statement
+
+
+def test_policy_allows_comma_form_but_engine_blocks_it(tmp_root, monkeypatch):
+    """The comma table form (`FROM t, 'x'`) is allowed by the policy on
+    purpose - a comma branch rejected every function argument - and is
+    stopped at the engine level instead on DuckDB datasources."""
+    import duckdb as _duckdb
+    import pytest as _pytest
+
+    monkeypatch.chdir(tmp_root)
+    db = tmp_root / "c.duckdb"
+    con = _duckdb.connect(str(db))
+    con.execute("CREATE TABLE t (v INTEGER)")
+    con.execute("INSERT INTO t VALUES (1)")
+    con.close()
+
+    build = _duckdb.connect()
+    build.execute("COPY (SELECT 'LEAKED' AS s) TO 'p.parquet' (FORMAT PARQUET)")
+    build.close()
+
+    statement = "SELECT count(*) FROM t, 'p.parquet'"
+    assert read_only_problem(statement) is None, "policy deliberately allows commas"
+
+    ds = DataSource(parse_spec(str(db)))
+    con = ds.open()
+    try:
+        with _pytest.raises(_duckdb.PermissionException):
+            run_operator_query(con, statement, 5.0)
+    finally:
+        con.close()

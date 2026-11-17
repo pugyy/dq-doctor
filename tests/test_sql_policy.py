@@ -33,6 +33,13 @@ ACCEPTED = [
     "WITH x AS (SELECT 1 AS n) SELECT COUNT(*) FROM x",
     "SELECT \"order\" FROM \"select\"",
     "SELECT COUNT(*) FROM t;",
+    # function arguments must not look like table sources (a comma branch in
+    # _REPLACEMENT_SCAN rejected all three of these)
+    "SELECT count(*) FROM t WHERE status IN ('ok','bad')",
+    "SELECT COALESCE(a, 'x') FROM t",
+    "SELECT replace(name,'a','b') FROM t",
+    "SELECT concat_ws(',', a, 'b') FROM t",
+    "SELECT substr(name, 1, 'x' IS NOT NULL) FROM t",
 ]
 
 

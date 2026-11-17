@@ -369,7 +369,13 @@ class DataSource:
         if self.spec.path is not None:
             return str(self.spec.path.resolve())
         if self.spec.files:
-            parents = {f.resolve().parent for f in self.spec.files}
+            files = [f.resolve() for f in self.spec.files]
+            # A single file must stay a single file: returning its parent
+            # directory would silently widen the datasource (extra files,
+            # different table names) the next time the contract is loaded.
+            if len(files) == 1:
+                return str(files[0])
+            parents = {f.parent for f in files}
             if len(parents) == 1:
                 return str(parents.pop())
         return self.spec.original

@@ -31,6 +31,24 @@ def test_safe_persistent_ref_keeps_file_datasources_usable(tmp_root):
     assert DataSource(parse_spec(safe)).spec.path is not None
 
 
+def test_single_file_source_stays_a_single_file(tmp_root):
+    """A one-file datasource must not widen to its parent directory.
+
+    Returning the directory would silently register every sibling file as a
+    table the next time the contract is loaded.
+    """
+    single = tmp_root / "orders.parquet"
+    single.write_bytes(b"PAR1")
+    # an unrelated sibling to prove it is never picked up
+    (tmp_root / "other.csv").write_text("x\n1\n", encoding="utf-8")
+
+    ds = DataSource(parse_spec(str(single)))
+    assert ds.safe_persistent_ref() == str(single.resolve())
+    reloaded = DataSource(parse_spec(ds.safe_persistent_ref()))
+    assert reloaded.spec.files == [single.resolve()]
+    assert reloaded.tables() == ["orders"]
+
+
 def test_requires_secret_handling_flags_urls_with_userinfo():
     assert DataSource(
         parse_spec("postgresql://u:p@h:5432/db")

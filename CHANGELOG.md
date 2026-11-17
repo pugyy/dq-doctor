@@ -1,5 +1,39 @@
 # Changelog
 
+## v1.0.4
+
+Fourth audit pass: four regressions found in 1.0.3, all reproduced then fixed.
+
+### Fixed
+
+- **The replacement-scan check rejected everyday SQL.** The `,` branch added
+  for `FROM t, 'file'` fired on every function-call argument:
+  `IN ('ok','bad')`, `COALESCE(a,'x')`, `replace(name,'a','b')` were all
+  refused despite being core cleaning-rule syntax. The branch is removed;
+  the comma table form is stopped at the engine level instead (verified:
+  `PermissionException` on DuckDB), and PG/MySQL reject it as a syntax
+  error.
+- **A single-file datasource was persisted as its parent directory**, so
+  `rules-init --db orders.parquet` wrote a contract that reloaded as the
+  whole directory (extra files as tables). A single file now stays a single
+  file; only multi-file sources in one directory are stored as the
+  directory.
+- **`pip install dq-doctor[sql]` could not connect to PostgreSQL.** The
+  extra shipped psycopg2 while SQLAlchemy 2.1 resolves a bare
+  `postgresql://` URL to the psycopg3 driver. The extra now installs
+  `psycopg[binary]>=3.1`; verified from a clean `[sql]`-only venv against
+  live PostgreSQL 16 and MySQL 9.
+- **Live-server tests swallowed real failures as skips.** The reachability
+  probe caught bare `Exception`, so a driver bug surfaced as "not
+  reachable" (and made the suite flaky between runs). It now catches only
+  `OperationalError`/`DatasourceError`, and setting `DQ_LIVE_REQUIRED=1`
+  turns unreachable servers into failures for CI.
+
+### Tests
+
+197 tests (was 190), 84.1% coverage. New cases: `IN`/`COALESCE`/`replace`
+policy acceptance, comma-form engine-level block, single-file persistence.
+
 ## v1.0.3
 
 Live-backend verification (MySQL 9.5.0, PostgreSQL 16.2). Running the
