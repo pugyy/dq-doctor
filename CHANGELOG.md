@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.0.7
+
+Seventh audit pass: the fast-fail timeout only existed in test URLs.
+
+### Fixed
+
+- **`DataSource.open` had no default connect timeout.** An unreachable
+  host hung until the OS TCP limit (measured: 130s on Windows; the audit
+  saw >300s), stalling CI instead of failing fast. SQL backends now default
+  to ``connect_timeout=10`` via ``connect_args``; ``DQ_CONNECT_TIMEOUT``
+  overrides the default, and an explicit ``?connect_timeout=`` in the URL
+  wins over both (passing both to the DBAPI would collide). Verified:
+  dead address fails in 10.1s with the default, 1s with the URL override,
+  and live connections are unaffected.
+- The dead-address test no longer smuggles ``?connect_timeout=2`` into its
+  URLs - it now proves the *product* default, plus dedicated cases for the
+  URL and env overrides.
+
+211 tests, 84.2% coverage.
+
 ## v1.0.6
 
 Sixth audit pass: the "final examiner" was holding the developer's home

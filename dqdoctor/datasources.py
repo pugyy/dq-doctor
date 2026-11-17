@@ -17,6 +17,7 @@ value-in-SQL-text case (file paths in DuckDB DDL) is isolated in
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -450,6 +451,16 @@ class DataSource:
         # even DROP TABLE IF EXISTS).
         if self.spec.kind == "postgresql" and read_only:
             connect_args["options"] = "-c default_transaction_read_only=on"
+        # A default connect timeout: without one, an unreachable host hangs
+        # until the OS TCP timeout (~2 minutes on Windows, longer elsewhere),
+        # which stalls CI instead of failing fast. psycopg and PyMySQL both
+        # accept ``connect_timeout``. An explicit ``?connect_timeout=`` in the
+        # URL wins (passing both would collide in the DBAPI call), and
+        # ``DQ_CONNECT_TIMEOUT`` overrides the default.
+        if "connect_timeout" not in (urlsplit(self.spec.original).query or ""):
+            connect_args["connect_timeout"] = int(
+                os.environ.get("DQ_CONNECT_TIMEOUT", "10")
+            )
         engine = create_engine(self.spec.url, connect_args=connect_args)
         con = Connection(
             engine.connect(),

@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from dqdoctor.datasources import DatasourceError, parse_spec
 
@@ -67,15 +68,60 @@ def _run_live_suite(env_extra: dict) -> int:
 
 
 def test_dead_address_fails_when_required():
-    """REQUIRED + unreachable DQTEST_* must fail - proving env is honoured."""
+    """REQUIRED + unreachable DQTEST_* must fail - proving env is honoured.
+
+    The URLs carry NO connect_timeout: DataSource.open supplies a default
+    (DQ_CONNECT_TIMEOUT, 10s) so the failure is fast without per-URL help.
+    """
     code = _run_live_suite({
-        # short connect timeouts so the failure is fast, not a 5-minute hang
-        "DQTEST_MYSQL": "mysql://x:x@127.0.0.1:1/x?connect_timeout=2",
-        "DQTEST_PG": "postgresql://x:x@127.0.0.1:1/x?connect_timeout=2",
+        "DQTEST_MYSQL": "mysql://x:x@127.0.0.1:1/x",
+        "DQTEST_PG": "postgresql://x:x@127.0.0.1:1/x",
         "DQ_LIVE_REQUIRED": "1",
         "DQTEST_MYSQL_ADMIN": "",
     })
     assert code != 0, "dead addresses must fail under DQ_LIVE_REQUIRED"
+
+
+def test_default_connect_timeout_bounds_the_hang():
+    """Without any timeout a dead host hangs to the OS TCP limit (~2min)."""
+    import time as _time
+
+    from dqdoctor.datasources import DataSource
+
+    ds = DataSource(parse_spec("postgresql://x:x@127.0.0.1:1/x"))
+    started = _time.perf_counter()
+    with pytest.raises(OperationalError):
+        ds.open()
+    elapsed = _time.perf_counter() - started
+    assert elapsed < 30, f"default timeout did not apply: {elapsed:.1f}s"
+
+
+def test_url_connect_timeout_overrides_default():
+    """An explicit ?connect_timeout= in the URL wins over the default."""
+    import time as _time
+
+    from dqdoctor.datasources import DataSource
+
+    ds = DataSource(parse_spec("postgresql://x:x@127.0.0.1:1/x?connect_timeout=1"))
+    started = _time.perf_counter()
+    with pytest.raises(OperationalError):
+        ds.open()
+    elapsed = _time.perf_counter() - started
+    assert elapsed < 5, f"URL timeout not honoured: {elapsed:.1f}s"
+
+
+def test_env_connect_timeout_overrides_default(monkeypatch):
+    import time as _time
+
+    from dqdoctor.datasources import DataSource
+
+    monkeypatch.setenv("DQ_CONNECT_TIMEOUT", "2")
+    ds = DataSource(parse_spec("postgresql://x:x@127.0.0.1:1/x"))
+    started = _time.perf_counter()
+    with pytest.raises(OperationalError):
+        ds.open()
+    elapsed = _time.perf_counter() - started
+    assert elapsed < 10, f"env timeout not honoured: {elapsed:.1f}s"
 
 
 def test_env_addresses_are_used_not_constants():
