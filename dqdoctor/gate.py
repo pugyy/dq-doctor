@@ -25,11 +25,19 @@ def run_gate(
     table_name: str | None = None,
     all_tables: bool = False,
     rules_path: str | None = None,
+    baseline_path: str | None = None,
     max_failures: int = 0,
     fail_on: str = "low",
     out_path: str = "report.json",
 ) -> dict:
-    """Run a contract check and enforce the gate; returns a per-table summary."""
+    """Run a contract check and enforce the gate; returns a per-table summary.
+
+    ``baseline_path`` gives schedulers the same known-failure exemption the
+    CLI has. Without it, a legacy datasource with pre-existing orphan rows
+    would fail forever on Airflow/MCP even though `dqdoctor check --baseline`
+    passes.
+    """
+    from dqdoctor import baseline as baseline_mod
     from dqdoctor.contract import ContractError, load_contract
     from dqdoctor.datasources import DatasourceError
     from dqdoctor.datasources import resolve as resolve_ds
@@ -43,6 +51,12 @@ def run_gate(
             contract = load_contract(Path(rules_path))
         except ContractError as exc:
             raise RunnerError(str(exc)) from exc
+    baseline = None
+    if baseline_path:
+        try:
+            baseline = baseline_mod.load_baseline(Path(baseline_path))
+        except (FileNotFoundError, ValueError) as exc:
+            raise RunnerError(f"baseline: {exc}") from exc
     tables = None if all_tables else ([table_name] if table_name else None)
     if tables is None and not all_tables:
         raise RunnerError("Either table_name or all_tables must be set")
@@ -50,21 +64,23 @@ def run_gate(
     try:
         ds = resolve_ds(source)
         engine = CheckEngine(ds)
-        policy = GatePolicy(max_failures=max_failures, fail_on=fail_on)
+        policy = GatePolicy(max_failures=max_failures, fail_on=fail_on,
+                            baseline_active=baseline is not None)
         outcome = engine.run(
             tables=tables, contract=contract,
-            explore=contract is None, policy=policy,
+            explore=contract is None, baseline=baseline, policy=policy,
         )
     except DatasourceError as exc:
         raise RunnerError(str(exc)) from exc
 
     write_json(outcome, Path(out_path))
-    code = decide_exit(outcome, policy)
+    code = decide_exit(outcome, policy, baseline)
     if code == 2:
         raise RunnerError(f"execution error ({len(outcome.rule_errors)} rule error(s))")
     if code == 1:
+        counted = len(outcome.non_exempt_failures)
         raise QualityGateError(
-            f"{len(outcome.non_exempt_failures)} non-exempt failures exceed "
+            f"{counted} non-exempt failure(s) or orphan relationship(s) exceed "
             f"policy (max-failures={max_failures}, fail-on={fail_on})"
         )
     return summarize(outcome)
@@ -111,7 +127,6 @@ class DQDoctorOperator(_BASE_OPERATOR):  # type: ignore[misc, valid-type]
     """Run dq-doctor checks as an Airflow task (all tables, then one gate)."""
 
     template_fields = ("source", "table_name")
-    _protocol_name = "exec" + "ute"  # Airflow's task protocol attribute
 
     def __init__(
         self,
@@ -119,6 +134,7 @@ class DQDoctorOperator(_BASE_OPERATOR):  # type: ignore[misc, valid-type]
         table_name=None,
         all_tables: bool = False,
         rules_path=None,
+        baseline_path=None,
         max_failures: int = 0,
         fail_on: str = "low",
         out: str = "report.json",
@@ -131,6 +147,7 @@ class DQDoctorOperator(_BASE_OPERATOR):  # type: ignore[misc, valid-type]
         self.table_name = table_name
         self.all_tables = all_tables
         self.rules_path = rules_path
+        self.baseline_path = baseline_path
         self.max_failures = max_failures
         self.fail_on = fail_on
         self.out = out
@@ -142,6 +159,7 @@ class DQDoctorOperator(_BASE_OPERATOR):  # type: ignore[misc, valid-type]
             "table_name": self.table_name,
             "all_tables": self.all_tables,
             "rules_path": self.rules_path,
+            "baseline_path": self.baseline_path,
             "max_failures": self.max_failures,
             "fail_on": self.fail_on,
             "out_path": self.out,

@@ -74,8 +74,12 @@ def _multi_out(out: Path, table: str) -> Path:
 
 
 def _resolve_ds(db: str | None, config: Path | None) -> DataSource:
-    if db is None and config is None and not Path(".dqdoctor.yml").exists():
-        _fail("--db is required (or register datasources in .dqdoctor.yml via `dqdoctor init`).")
+    """Resolve --db / config default / contract datasource into a DataSource.
+
+    ``resolve`` raises a descriptive DatasourceError (including the
+    registered aliases) when nothing usable is available, so there is no
+    separate pre-check here.
+    """
     try:
         return resolve_datasource(db or "", config_path=config)
     except DatasourceError as exc:
@@ -302,15 +306,29 @@ def check(
     """
     if fail_on not in ("high", "medium", "low"):
         _fail(f"--fail-on must be high/medium/low, got {fail_on!r}")
-    ds = _resolve_ds(db, config)
+    # Load the contract first: it may carry the datasource, and a redacted
+    # one must produce a clear diagnostic instead of a connection attempt.
     contract = None
     if rules is not None:
         try:
             contract = contract_mod.load_contract(rules)
         except ContractError as exc:
             _fail(str(exc))
-        if contract.datasource and db is None:
-            ds = _resolve_ds(contract.datasource, config)
+        if contract.datasource and db is None and "***" in contract.datasource:
+            _fail(
+                f"the contract records a redacted datasource "
+                f"({contract.datasource}); pass the real one with --db, or "
+                "register an alias in .dqdoctor.yml and use --db <alias>."
+            )
+    # Datasource resolution order: explicit --db, then the contract's own
+    # datasource, then the config default. A redacted contract datasource is
+    # a clear error rather than a dialling attempt with "***".
+    if db is not None:
+        ds = _resolve_ds(db, config)
+    elif contract is not None and contract.datasource:
+        ds = _resolve_ds(contract.datasource, config)
+    else:
+        ds = _resolve_ds(None, config)
     base = None
     if baseline is not None:
         try:
@@ -464,19 +482,27 @@ def rules_init(
             table_scoped(s, tc.table_name) for s in suggest_for_table(tc.profile)
         ]
     contract = contract_mod.build_contract(
-        # Persist the ORIGINAL spec so `check --rules` can reconnect; the
-        # redacted form is display-only and would literally be a "***"
-        # password.
-        [tc.profile for tc in outcome.tables], specs, datasource=ds.persistent_ref()
+        # Never persist credentials: URL datasources are stored redacted and
+        # supplied at check time via --db or an alias; file datasources carry
+        # no secrets and stay usable as-is.
+        [tc.profile for tc in outcome.tables], specs,
+        datasource=ds.safe_persistent_ref(),
     )
     contract_mod.save_contract(contract, out)
     total = sum(len(v) for v in specs.values())
     console.print(f"[green]Contract written:[/green] {out} ({total} rules, "
                   f"{len(specs)} table(s))")
-    console.print(f"[dim]Edit it, then: dqdoctor check --db {ds.describe()} "
-                  f"--all-tables --rules {out} --ci[/dim]")
-    console.print("[dim]The contract stores the full datasource reference; "
-                  "--db is only needed to override it.[/dim]")
+    if ds.requires_secret_handling():
+        console.print(
+            "[yellow]Note:[/yellow] this datasource embeds credentials, so the "
+            "contract stores the redacted form only. Pass the real URL at check "
+            "time (`--db`), or register an alias in .dqdoctor.yml and use it."
+        )
+        console.print(f"[dim]Next: dqdoctor check --db <your-url> --all-tables "
+                      f"--rules {out} --ci[/dim]")
+    else:
+        console.print(f"[dim]Next: dqdoctor check --all-tables --rules {out} "
+                      f"--ci  (the contract records the datasource)[/dim]")
 
 
 # ---------------------------------------------------------------------------

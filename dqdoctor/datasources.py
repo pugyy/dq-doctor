@@ -324,12 +324,41 @@ class DataSource:
     def persistent_ref(self) -> str:
         """Original datasource string, for storing in config/contracts.
 
-        Guarantees a later ``check --rules`` can reconnect. Never printed:
-        use ``describe()`` for anything user-facing.
+        Never printed: use ``describe()`` for anything user-facing. Callers
+        that persist this must not write raw credentials into a file - see
+        ``safe_persistent_ref()``.
         """
         return self.spec.original
 
+    def safe_persistent_ref(self) -> str:
+        """Datasource reference that is safe to write into a contract file.
+
+        Secrets are never persisted. A URL datasource yields its **redacted**
+        form so the contract documents where the data lives without carrying
+        a live password; the operator supplies the real URL at check time
+        via ``--db`` or a ``datasources:`` alias. Non-URL datasources (DuckDB
+        files, file directories) contain no credentials and are stored as-is
+        so `check --rules` keeps working with no extra flags.
+        """
+        if self.spec.kind in ("postgresql", "mysql"):
+            return self.spec.display
+        return self.spec.original
+
+    def requires_secret_handling(self) -> bool:
+        """True when the datasource embeds credentials."""
+        return self.spec.kind in ("postgresql", "mysql") and "@" in (
+            self.spec.original.split("://", 1)[-1].split("/", 1)[0]
+        )
+
     def open(self, read_only: bool = True) -> Connection:
+        """Open a connection.
+
+        DuckDB files are always opened with ``enable_external_access=false``:
+        every table lives inside the file, so nothing legitimate needs file
+        or network access, and it makes operator SQL unable to read paths via
+        ``query_table``/``glob``/replacement scans. File datasources are the
+        exception - their views re-read the file per query.
+        """
         if self.spec.kind == "duckdb":
             path = self.spec.path
             if read_only and (path is None or not path.exists()):
@@ -339,9 +368,18 @@ class DataSource:
                 )
             import duckdb
 
-            return Connection(
-                duckdb.connect(str(path), read_only=read_only), "duckdb"
+            # DuckDB forbids opening the same file twice with different
+            # configurations, so the restriction has to be decided once, at
+            # open time. A DuckDB file needs no external access once attached:
+            # every table is inside it. Blocking file/network access here means
+            # operator SQL cannot escape via query_table/glob/replacement
+            # scans even if the shape policy is bypassed.
+            raw = duckdb.connect(
+                str(path),
+                read_only=read_only,
+                config={"enable_external_access": "false"},
             )
+            return Connection(raw, "duckdb")
 
         if self.spec.kind == "files":
             import duckdb
@@ -350,6 +388,11 @@ class DataSource:
             con = Connection(raw, "duckdb", source_kind="files")
             names = register_file_views(raw, self.spec.files or [])
             con.query_count = len(names)
+            # NOTE: external access must stay enabled here. DuckDB views over
+            # CSV/Parquet re-read the file on every query, so disabling it
+            # would block the datasource's own tables. SQL rules on file
+            # sources rely on the shape policy instead; this is documented in
+            # docs/limitations.md.
             return con
 
         from sqlalchemy import create_engine

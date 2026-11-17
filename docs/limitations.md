@@ -96,20 +96,54 @@ are informational and do not affect the score.
 
 ### SQL rules
 
-The operator's query is the product input and is not parameterizable.
-Guardrails:
+The operator's query is the product input and is not parameterizable. Two
+layers guard it:
 
-- read-only sessions (PostgreSQL `default_transaction_read_only`, MySQL
-  `SET SESSION TRANSACTION READ ONLY`, DuckDB opened read-only);
-- shape policy (`sqlpolicy`): single statement, must start with
-  `SELECT`/`WITH`, **no write keywords anywhere** (this blocks
-  data-modifying CTEs such as `WITH d AS (DELETE ... RETURNING *) SELECT`),
-  and **no file/network reader functions** (`read_text`, `read_csv_auto`,
-  `read_parquet`, ...) which a read-only session does not stop;
-- statement timeout, plus a one-row/one-column scalar contract.
+**Layer 1 - connection restriction (authoritative on DuckDB files).**
+DuckDB databases are opened with ``enable_external_access=false``. That is
+an engine-level block, not a keyword list: ``query_table``, ``glob``,
+replacement scans (``FROM 'file.parquet'``) and every ``read_*`` function
+fail with ``PermissionException``. It also blocks extension loading.
 
-An operator can still write an expensive read-only query; `--sql-timeout`
-is the mitigation. The policy is a shape guard, not a full SQL parser.
+**Layer 2 - shape policy (``sqlpolicy``).** Applied to every backend:
+
+- single statement, must start with ``SELECT``/``VALUES``/``WITH``;
+- no write keywords anywhere (blocks data-modifying CTEs such as
+  ``WITH d AS (DELETE ... RETURNING *) SELECT``);
+- no file/network reader functions - covers DuckDB ``read_*``/``glob``/
+  ``query_table`` **and** PostgreSQL ``pg_read_file``/``pg_ls_dir`` **and**
+  MySQL ``LOAD_FILE``;
+- no ``FROM 'literal'`` replacement scans;
+- string literals are removed *before* comments, so ``SELECT '--' ; DELETE``
+  cannot hide a second command.
+
+**Exception: file datasources (CSV/Parquet/JSON).** DuckDB views over files
+re-read the file on each query, so ``enable_external_access`` cannot be
+disabled there - it would block the datasource's own tables. On file
+sources only layer 2 applies. If that is not enough for your threat model,
+run file-source checks against a materialized DuckDB copy.
+
+**Residual risk.** SQL sessions are also read-only (PostgreSQL
+``default_transaction_read_only``, MySQL ``SET SESSION TRANSACTION READ
+ONLY``, DuckDB file read-only). MySQL's statement only covers the *next*
+transaction, so a driver that has already begun a transaction keeps write
+capability within it - the shape policy is the guard on that path. An
+operator can still write an expensive read-only query; ``--sql-timeout`` is
+the mitigation. The policy is a shape guard, not a full SQL parser; an AST
+whitelist (e.g. sqlglot) is the next step if untrusted rule authors are in
+scope.
+
+### Credentials
+
+Datasources embedding credentials are **never persisted**: a contract
+stores the redacted form (`user:***@host/db`). Pass the real URL with
+`--db`, or register an alias in `.dqdoctor.yml` and use the alias. Writing
+a contract from a URL datasource prints an explicit warning, and `check`
+refuses a contract whose datasource still contains `***` instead of trying
+to connect with a literal asterisk password.
+
+`.gitignore` covers `contract.yml`, `*.contract.yml` and `*.duckdb.bak`
+(the backup `demo --force` leaves behind).
 
 ### Score
 

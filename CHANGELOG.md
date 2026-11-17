@@ -1,5 +1,44 @@
 # Changelog
 
+## v1.0.1
+
+Second audit pass. Fixes two release blockers introduced by the first fix
+round, plus scheduling/CI gaps.
+
+### Security
+
+- **SQL rules could escape the database.** The keyword/function blacklist
+  missed `query_table`, `glob`, DuckDB replacement scans (`FROM 'x.parquet'`),
+  `pg_read_file`, `pg_ls_dir` and `LOAD_FILE`, and `SELECT '--' ; DELETE`
+  slipped past the multi-statement check because comments were stripped
+  before string literals. Now:
+  - DuckDB datasources open with `enable_external_access=false`, so file
+    and network reads fail at the engine level regardless of the statement
+    text;
+  - the shape policy gained the missing functions, a replacement-scan
+    check, and correct strip order (literals before comments);
+  - file datasources are documented as an exception (their views re-read
+    the file per query, so the engine block cannot apply there).
+- **Contracts no longer persist credentials.** `rules-init` writes the
+  redacted datasource for URL sources and prints a warning; `check` refuses
+  a contract whose datasource still contains `***`. `.gitignore` now covers
+  `contract.yml`, `*.contract.yml` and `*.duckdb.bak`.
+
+### Fixed
+
+- `run_gate` / `DQDoctorOperator` accept `baseline_path`, so schedulers can
+  onboard legacy orphan data the same way the CLI does.
+- `rules-init` no longer prints a redacted URL as the "next command".
+- Version bumped to 1.0.1 so this build is distinguishable from the first
+  1.0.0 artifact.
+- CI triggers on any branch (`branches: ["**"]`), so `test_backends.py` can
+  actually run against real PostgreSQL/MySQL.
+
+### Tests
+
+164 tests (was 134), 80.9% coverage. New: `tests/test_audit_sql_bypass.py`
+(19 bypass shapes + engine-level restriction), `tests/test_secret_handling.py`.
+
 ## v1.0.0
 
 First stable release. Breaking changes; see

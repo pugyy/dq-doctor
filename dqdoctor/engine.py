@@ -188,7 +188,14 @@ class CheckEngine:
         return check
 
     def _sql_rules(self, con, specs: list[RuleSpec]) -> list[RuleResult]:
-        """Execute opt-in SQL rules through the guarded primitive."""
+        """Execute opt-in SQL rules through the guarded primitive.
+
+        The connection passed in is already restricted for DuckDB
+        (``enable_external_access=false`` at open time, since DuckDB refuses
+        to open the same file with two configurations). That engine-level
+        block - not the keyword policy - is what makes file/network reads
+        impossible; see ``datasources.DataSource.open``.
+        """
         from dqdoctor.sqlrules import check_sql
 
         return [

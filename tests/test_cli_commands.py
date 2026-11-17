@@ -186,11 +186,26 @@ def test_drift_command(tmp_root):
     assert "drift" in result.output.lower()
 
 
+def test_check_uses_the_contract_datasource_without_db_flag(demo_db, tmp_root, monkeypatch):
+    """`check --rules` alone works when the contract records a file source."""
+    monkeypatch.chdir(tmp_root)
+    runner = CliRunner()
+    assert runner.invoke(app, [
+        "rules-init", "--db", str(demo_db), "--all-tables", "--out", "c.yml",
+    ]).exit_code == 0
+    result = runner.invoke(app, [
+        "check", "--all-tables", "--rules", "c.yml", "--out", "r.html", "--ci",
+    ])
+    # the dirty demo trips the gate, which proves the datasource resolved
+    assert result.exit_code == 1, result.output
+
+
 def test_explore_check_without_db_and_config_exits_two(tmp_root, monkeypatch):
     monkeypatch.chdir(tmp_root)
     result = CliRunner().invoke(app, ["check", "--table", "t"])
     assert result.exit_code == 2
-    assert "--db is required" in result.output
+    # the diagnostic names the missing datasource instead of a bare "--db"
+    assert "datasource" in result.output.lower()
 
 
 def test_invalid_fail_on_exits_two(demo_db):

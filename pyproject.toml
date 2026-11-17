@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dq-doctor"
-version = "1.0.0"
+version = "1.0.1"
 description = "One command to profile tables, fix a data quality contract, and gate new data batches."
 readme = "README.md"
 requires-python = ">=3.12"

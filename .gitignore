@@ -29,5 +29,19 @@ htmlcov/
 
 # test/benchmark artifacts
 *.parquet
-*.csv
-!docs/**/*.csv
+# Data files are test fixtures only; keep them scoped so real CSVs can be
+# committed deliberately under examples/ or fixtures/.
+tests/**/*.csv
+tests/**/*.json
+!tests/**/expected_*.json
+
+# database backups created by `dqdoctor demo --force`
+*.duckdb.bak
+*.duckdb.build
+*.db.bak
+
+# contracts generated from a live datasource may name hosts; templates and
+# examples are tracked, generated ones are not
+contract.yml
+*.contract.yml
+rules.generated.yml

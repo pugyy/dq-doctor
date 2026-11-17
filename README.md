@@ -58,7 +58,7 @@ Airflow, in exports, over MCP.
 | `regex` | text | backend-native (`regexp_matches` / `~` / `REGEXP_LIKE`) |
 | `row_count` | table | `exact`, `min`, `max` |
 | `cross_field` | two columns | `<`, `<=`, `>`, `>=`, `=`, `!=` |
-| `sql` | operator query | read-only session, single statement, timeout, scalar contract |
+| `sql` | operator query | read-only session, external access disabled on DuckDB, single statement, timeout, scalar contract |
 
 Statuses are explicit: `pass`, `fail`, `skip`, `suggestion`, `error`.
 
@@ -156,6 +156,23 @@ DuckDB views and go through the same rules, reports and exit codes.
 Connection strings are redacted everywhere. Explicit CLI flags beat config
 values; a missing or malformed contract/config produces a diagnostic and
 exit `2`.
+
+**Credentials are never written to a contract.** For a URL datasource,
+`rules-init` stores the redacted form and prints a warning; supply the real
+URL with `--db` at check time, or register an alias:
+
+```yaml
+# .dqdoctor.yml
+datasources:
+  prod: postgresql://user:pass@host:5432/db   # read credentials from env in CI
+default: prod
+```
+
+```bash
+dqdoctor check --db prod --all-tables --rules contract.yml --ci
+```
+
+`.gitignore` covers `contract.yml`, `*.contract.yml` and `*.duckdb.bak`.
 
 ## Export
 

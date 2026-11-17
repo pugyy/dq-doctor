@@ -148,7 +148,9 @@ New in 1.0:
    ```bash
    dqdoctor init --force
    ```
-   Add your datasources under `datasources:`.
+   Add your datasources under `datasources:`. Credentials in a URL are
+   redacted before being stored, so a contract never carries a password -
+   pass the URL with `--db` or reference an alias.
 4. **Pin against a known-good batch**
    ```bash
    dqdoctor rules-init --db prod_alias --all-tables --out contract.yml
