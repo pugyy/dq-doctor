@@ -22,10 +22,14 @@ from typing import Any
 # Keywords that may not appear in a rule statement. PostgreSQL allows
 # data-modifying CTEs (`WITH d AS (DELETE ... RETURNING *) SELECT ...`), so a
 # leading WITH is not by itself proof of read-only.
+#
+# `replace` is deliberately NOT here: REPLACE() is a standard string function,
+# and `SELECT replace(name,'a','b') FROM t` is a legitimate cleaning rule. The
+# MySQL `REPLACE INTO` statement form is caught by the leading-keyword check.
 _WRITE_KEYWORDS = (
     "insert", "update", "delete", "merge", "upsert", "truncate", "create",
     "drop", "alter", "grant", "revoke", "copy", "attach", "detach", "install",
-    "load", "export", "call", "vacuum", "reindex", "replace",
+    "load", "export", "call", "vacuum", "reindex",
 )
 
 # Functions that read local files or reach the network. Covered
@@ -36,18 +40,21 @@ _IO_FUNCTIONS = (
     "read_text", "read_text_auto", "read_blob", "read_csv", "read_csv_auto",
     "read_parquet", "read_json", "read_json_auto", "read_json_objects",
     "read_ndjson", "read_ndjson_auto", "read_xlsx", "parquet_scan",
-    "csv_scan", "json_scan", "json_each", "json_tree", "sniff_csv",
+    "csv_scan", "json_scan", "sniff_csv", "parquet_metadata",
+    "parquet_schema", "parquet_file_metadata", "parquet_kv_metadata",
     "delta_scan", "iceberg_scan", "query_table", "query", "glob",
     "pg_read_file", "pg_read_binary_file", "pg_ls_dir", "pg_stat_file",
     "lo_import", "lo_export", "load_file", "pg_file_write", "pg_file_rename",
     "pg_file_unlink", "pg_file_sync", "pg_ls_waldir", "pg_ls_logdir",
+    "pg_ls_tmpdir",
 )
 
-# DuckDB convenience: `FROM 'path.parquet'` is a replacement scan and
-# bypasses function-name checks entirely. Only *single-quoted* literals are
-# file paths; `"name"` is an identifier and must stay allowed.
+# DuckDB replacement scans: a single-quoted literal used as a *table* source
+# is read from disk. It appears after FROM, after JOIN, or after a comma in a
+# table list, so all three forms are matched. (Quoted identifiers are not
+# paths and are left alone.)
 _REPLACEMENT_SCAN = re.compile(
-    r"\bfrom\s+'(?:''|[^'])*'", re.IGNORECASE
+    r"(?:\bfrom|\bjoin|,)\s*'(?:''|[^'])*'", re.IGNORECASE
 )
 
 # A leading parenthesis is legal: `(SELECT 1) UNION (SELECT 2)`.
@@ -107,6 +114,10 @@ def read_only_problem(operator_query: str) -> str | None:
         return "only SELECT/WITH queries are allowed in SQL rules"
 
     lowered = cleaned.lower()
+    # MySQL's REPLACE INTO is a write statement; REPLACE() is a string
+    # function and must stay allowed, so it is checked as a statement form.
+    if re.search(r"^\s*replace\s+into\b", lowered):
+        return "'REPLACE INTO' is not allowed in SQL rules (read-only only)"
     for word in _WRITE_KEYWORDS:
         if re.search(r"\b" + word + r"\b", lowered):
             return (

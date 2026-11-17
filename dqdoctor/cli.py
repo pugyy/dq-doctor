@@ -37,7 +37,11 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
-console = Console()
+# emoji=False and markup-friendly defaults matter on Windows: Rich turns
+# ``rule_id`` text like ``not_null:a`` into an emoji glyph (🅰), which a GBK
+# console cannot encode - the CLI then crashes *after* a successful check and
+# exits 1. Plain ASCII output is correct on every console.
+console = Console(emoji=False, safe_box=True, highlight=False)
 
 EXIT_OK, EXIT_GATE, EXIT_ERROR = 0, 1, 2
 
@@ -73,15 +77,18 @@ def _multi_out(out: Path, table: str) -> Path:
     return out.with_name(f"{out.stem}_{_safe_stem(table)}{out.suffix}")
 
 
-def _resolve_ds(db: str | None, config: Path | None) -> DataSource:
+def _resolve_ds(
+    db: str | None, config: Path | None, base_dir: Path | None = None
+) -> DataSource:
     """Resolve --db / config default / contract datasource into a DataSource.
 
     ``resolve`` raises a descriptive DatasourceError (including the
     registered aliases) when nothing usable is available, so there is no
-    separate pre-check here.
+    separate pre-check here. ``base_dir`` makes relative paths resolve
+    against the contract's directory rather than the process cwd.
     """
     try:
-        return resolve_datasource(db or "", config_path=config)
+        return resolve_datasource(db or "", config_path=config, base_dir=base_dir)
     except DatasourceError as exc:
         _fail(str(exc))
 
@@ -322,11 +329,12 @@ def check(
             )
     # Datasource resolution order: explicit --db, then the contract's own
     # datasource, then the config default. A redacted contract datasource is
-    # a clear error rather than a dialling attempt with "***".
+    # a clear error rather than a dialling attempt with "***". Relative paths
+    # in a contract resolve against the contract's directory, not the cwd.
     if db is not None:
         ds = _resolve_ds(db, config)
     elif contract is not None and contract.datasource:
-        ds = _resolve_ds(contract.datasource, config)
+        ds = _resolve_ds(contract.datasource, config, base_dir=rules.parent)
     else:
         ds = _resolve_ds(None, config)
     base = None

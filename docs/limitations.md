@@ -119,9 +119,13 @@ fail with ``PermissionException``. It also blocks extension loading.
 
 **Exception: file datasources (CSV/Parquet/JSON).** DuckDB views over files
 re-read the file on each query, so ``enable_external_access`` cannot be
-disabled there - it would block the datasource's own tables. On file
-sources only layer 2 applies. If that is not enough for your threat model,
-run file-source checks against a materialized DuckDB copy.
+disabled there - it would block the datasource's own tables. A keyword
+policy cannot enumerate every read shape (``JOIN 'x.parquet'``, comma
+joins, ``parquet_metadata(...)``), so **SQL rules are refused outright on
+file datasources**: ``check_sql`` returns a SKIP explaining that regex /
+row_count / cross_field / range / accepted_values should be used instead.
+If you need SQL rules over files, materialize the file into a DuckDB
+database first (``dqdoctor`` then sees it as a normal table).
 
 **Residual risk.** SQL sessions are also read-only (PostgreSQL
 ``default_transaction_read_only``, MySQL ``SET SESSION TRANSACTION READ
@@ -136,14 +140,26 @@ scope.
 ### Credentials
 
 Datasources embedding credentials are **never persisted**: a contract
-stores the redacted form (`user:***@host/db`). Pass the real URL with
-`--db`, or register an alias in `.dqdoctor.yml` and use the alias. Writing
-a contract from a URL datasource prints an explicit warning, and `check`
-refuses a contract whose datasource still contains `***` instead of trying
-to connect with a literal asterisk password.
+stores the redacted form. Both forms are masked - userinfo
+(`postgresql://u:***@host/db`) and query parameters
+(`?password=***`), while non-secret parameters such as `sslmode=require`
+are kept so the reference stays descriptive. Pass the real URL with
+`--db`, or register an alias in `.dqdoctor.yml` and use the alias.
+
+Local paths are stored **absolute**, so a contract keeps resolving after
+being moved or read from another directory; relative paths inside a
+hand-written contract resolve against the contract's own directory.
 
 `.gitignore` covers `contract.yml`, `*.contract.yml` and `*.duckdb.bak`
 (the backup `demo --force` leaves behind).
+
+### Console encoding
+
+The CLI renders plain ASCII (`Console(emoji=False)`). Rich would otherwise
+turn a rule id such as `not_null:a` into an emoji glyph, which a GBK
+console cannot encode - the check would pass and the process would still
+exit 1 on `UnicodeEncodeError`. Verified with a GBK subprocess test
+(`tests/test_console_and_paths.py`).
 
 ### Score
 

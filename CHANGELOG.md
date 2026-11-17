@@ -1,5 +1,43 @@
 # Changelog
 
+## v1.0.2
+
+Third audit pass. Closes the remaining release blockers.
+
+### Security
+
+- **File datasources can no longer run SQL rules.** The engine-level
+  `enable_external_access` block cannot apply to CSV/Parquet/JSON views
+  (they re-read the file per query), and the keyword policy provably missed
+  `JOIN 'x.parquet'`, comma joins, `parquet_metadata(...)` and
+  `"read_text"(...)`. SQL rules on file datasources now return a SKIP with
+  a remediation message instead of executing. The policy also gained
+  JOIN/comma replacement-scan detection and the `parquet_*` readers.
+- **Query-parameter secrets are redacted.** `?password=`, `?passwd=`,
+  `?token=` and friends are masked in `describe()` and in
+  `safe_persistent_ref()`; `?sslmode=require` is kept and no longer
+  triggers a false "embeds credentials" warning.
+- `persistent_ref()` (raw URL) removed so it cannot be called by mistake.
+
+### Fixed
+
+- **Windows GBK console no longer turns a passing check into exit 1.**
+  Rich rendered rule ids like `not_null:a` with an emoji glyph that GBK
+  cannot encode; the console is now ASCII-only (`emoji=False`). Pinned by a
+  GBK subprocess test.
+- **Contract paths resolve against the contract's directory**, and
+  `rules-init` stores local paths absolute, so a contract keeps working when
+  read from another cwd.
+- **`REPLACE()` is no longer rejected as a write keyword** (only
+  `REPLACE INTO` is); `json_each`/`json_tree` are no longer treated as file
+  readers.
+
+### Tests
+
+177 tests (was 165), 81.1% coverage. New: `tests/test_console_and_paths.py`
+(GBK subprocess, contract-relative paths), plus JOIN/comma/`parquet_metadata`
+bypass cases.
+
 ## v1.0.1
 
 Second audit pass. Fixes two release blockers introduced by the first fix

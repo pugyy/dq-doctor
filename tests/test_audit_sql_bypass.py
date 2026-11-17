@@ -148,8 +148,14 @@ FILE_SOURCE_BYPASSES = [
 
 
 @pytest.mark.parametrize("statement", FILE_SOURCE_BYPASSES)
-def test_file_source_sql_rules_still_shape_checked(tmp_root, statement):
-    """On file sources the shape policy is the guard, so it must hold."""
+def test_file_source_sql_rules_are_refused(tmp_root, statement):
+    """SQL rules are not executed on file datasources at all.
+
+    The engine-level file-access block cannot apply there (views re-read the
+    file per query), and a keyword policy provably misses shapes such as
+    ``JOIN 'x.parquet'`` or ``parquet_metadata(...)``. Refusing the rule is
+    the structural fix; the result is a SKIP with a remediation message.
+    """
     from dqdoctor.contract import Contract, TableRules
     from dqdoctor.engine import CheckEngine
     from dqdoctor.models import RuleSpec, RuleStatus
@@ -163,4 +169,49 @@ def test_file_source_sql_rules_still_shape_checked(tmp_root, statement):
     ])})
     outcome = CheckEngine(ds).run(tables=["data"], contract=contract)
     result = outcome.tables[0].rule_results[0]
-    assert result.status is RuleStatus.ERROR, result.message
+    assert result.status is RuleStatus.SKIP, result.message
+    assert "not supported on file datasources" in result.message
+
+
+JOIN_BYPASSES = [
+    "SELECT count(*) FROM data JOIN '{target}' q ON true",
+    "SELECT * FROM data, '{target}'",
+    "SELECT * FROM parquet_metadata('{target}')",
+    'SELECT * FROM "read_text"(\'{target}\')',
+]
+
+
+@pytest.mark.parametrize("template", JOIN_BYPASSES)
+def test_file_source_join_bypasses_not_executed(tmp_root, template, monkeypatch):
+    """The shapes that defeated the policy must not run on a file source."""
+    from dqdoctor.contract import Contract, TableRules
+    from dqdoctor.engine import CheckEngine
+    from dqdoctor.models import RuleSpec, RuleStatus
+
+    monkeypatch.chdir(tmp_root)
+    (tmp_root / "data.csv").write_text("x\n1\n", encoding="utf-8")
+    build = duckdb.connect()
+    build.execute("COPY (SELECT 'LEAKED' AS s) TO 'p.parquet' (FORMAT PARQUET)")
+    build.close()
+
+    statement = template.format(target="p.parquet")
+    ds = DataSource(parse_spec("data.csv"))
+    contract = Contract(tables={"data": TableRules(rules=[
+        RuleSpec(id="sql:x", type="sql", column="*",
+                 params={"query": statement, "expect": {"mode": "eq", "value": 0}},
+                 severity="high"),
+    ])})
+    outcome = CheckEngine(ds).run(tables=["data"], contract=contract)
+    result = outcome.tables[0].rule_results[0]
+    assert result.status is RuleStatus.SKIP, result.message
+    assert "LEAKED" not in result.message
+
+
+def test_policy_rejects_join_and_comma_replacement_scans():
+    """Belt and braces: the policy also refuses these shapes."""
+    for statement in (
+        "SELECT count(*) FROM t JOIN '/tmp/p.parquet' q ON true",
+        "SELECT * FROM t, '/tmp/p.parquet'",
+        "SELECT * FROM parquet_metadata('/tmp/p.parquet')",
+    ):
+        assert read_only_problem(statement) is not None, statement

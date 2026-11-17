@@ -190,19 +190,39 @@ class CheckEngine:
     def _sql_rules(self, con, specs: list[RuleSpec]) -> list[RuleResult]:
         """Execute opt-in SQL rules through the guarded primitive.
 
-        The connection passed in is already restricted for DuckDB
-        (``enable_external_access=false`` at open time, since DuckDB refuses
-        to open the same file with two configurations). That engine-level
-        block - not the keyword policy - is what makes file/network reads
-        impossible; see ``datasources.DataSource.open``.
+        DuckDB *files* open with ``enable_external_access=false``, which
+        blocks file/network reads at the engine level regardless of what the
+        statement says. **File datasources** (CSV/Parquet/JSON) cannot do
+        that - their views re-read the file on every query - so SQL rules
+        are refused there outright instead of relying on a keyword policy
+        that cannot enumerate every path (``JOIN 'x.parquet'``, comma joins,
+        ``parquet_metadata``, quoted function names...).
         """
+        from dqdoctor.models import RuleResult as _RR
+        from dqdoctor.models import RuleStatus as _RS
         from dqdoctor.sqlrules import check_sql
 
-        return [
-            check_sql(con, s, self.sql_timeout)
-            for s in specs
-            if s.type == "sql" and s.enabled
-        ]
+        sql_specs = [s for s in specs if s.type == "sql" and s.enabled]
+        if not sql_specs:
+            return []
+
+        if self.datasource.kind == "files":
+            return [
+                _RR(
+                    rule_id=s.id, rule_type="sql", column=s.column,
+                    status=_RS.SKIP, severity=s.severity,
+                    message=(
+                        "SQL rules are not supported on file datasources "
+                        "(CSV/Parquet/JSON): the engine cannot block file "
+                        "reads there. Use regex, row_count, cross_field, "
+                        "range or accepted_values instead."
+                    ),
+                    source=s.source,
+                )
+                for s in sql_specs
+            ]
+
+        return [check_sql(con, s, self.sql_timeout) for s in sql_specs]
 
 
 # ---------------------------------------------------------------------------

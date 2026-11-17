@@ -21,7 +21,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from dqdoctor.fileviews import register_file_views
 
@@ -89,19 +89,53 @@ class ConnectionSpec:
     schema: str | None = None  # non-default schema/database for sql backends
 
 
+# Query-string keys whose values must never be printed or persisted.
+_SECRET_QUERY_KEYS = (
+    "password", "passwd", "pwd", "secret", "token", "api_key", "apikey",
+    "access_token", "auth", "credential", "credentials", "sslkey",
+)
+
+
+def _is_secret_query_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(secret in lowered for secret in _SECRET_QUERY_KEYS)
+
+
 def redact_url(url: str) -> str:
-    """Mask the password in a connection URL for display."""
+    """Mask userinfo passwords AND secret query parameters for display.
+
+    ``postgresql://u@h/db?password=s3cret`` is as sensitive as
+    ``postgresql://u:s3cret@h/db``; both forms are used in the wild, so both
+    are redacted. Non-secret parameters (``sslmode=require``) are kept so the
+    display still describes the connection.
+    """
     try:
         parts = urlsplit(url)
     except ValueError:
         return "<invalid-url>"
-    if parts.password is None:
+
+    query_pairs = parse_qsl(parts.query, keep_blank_values=True) if parts.query else []
+    redacted_query = "&".join(
+        f"{key}=***" if _is_secret_query_key(key) else f"{key}={value}"
+        for key, value in query_pairs
+    )
+    has_secret_query = any(_is_secret_query_key(k) for k, _ in query_pairs)
+    if parts.password is None and not has_secret_query:
         return url
+
     host = parts.hostname or ""
     if parts.port:
         host = f"{host}:{parts.port}"
-    userinfo = f"{parts.username}:***@" if parts.username else "***@"
-    return f"{parts.scheme}://{userinfo}{host}{parts.path}"
+    if parts.username and parts.password is not None:
+        userinfo = f"{parts.username}:***@"
+    elif parts.username:
+        userinfo = f"{parts.username}@"
+    elif parts.password is not None:
+        userinfo = "***@"
+    else:
+        userinfo = ""
+    base = f"{parts.scheme}://{userinfo}{host}{parts.path}"
+    return f"{base}?{redacted_query}" if redacted_query else base
 
 
 def _sql_url(spec: str) -> tuple[str, str, str | None]:
@@ -321,34 +355,30 @@ class DataSource:
         """Redacted form, for display only (never persisted, never reconnected)."""
         return self.spec.display
 
-    def persistent_ref(self) -> str:
-        """Original datasource string, for storing in config/contracts.
-
-        Never printed: use ``describe()`` for anything user-facing. Callers
-        that persist this must not write raw credentials into a file - see
-        ``safe_persistent_ref()``.
-        """
-        return self.spec.original
-
     def safe_persistent_ref(self) -> str:
         """Datasource reference that is safe to write into a contract file.
 
-        Secrets are never persisted. A URL datasource yields its **redacted**
-        form so the contract documents where the data lives without carrying
-        a live password; the operator supplies the real URL at check time
-        via ``--db`` or a ``datasources:`` alias. Non-URL datasources (DuckDB
-        files, file directories) contain no credentials and are stored as-is
-        so `check --rules` keeps working with no extra flags.
+        URL datasources **always** yield the redacted form - userinfo
+        passwords and secret query parameters alike - and the real URL is
+        supplied at check time via ``--db`` or an alias. Local paths are
+        stored absolute: a contract that lives in another directory (or is
+        moved) must still find its database.
         """
         if self.spec.kind in ("postgresql", "mysql"):
-            return self.spec.display
+            return redact_url(self.spec.original)
+        if self.spec.path is not None:
+            return str(self.spec.path.resolve())
+        if self.spec.files:
+            parents = {f.resolve().parent for f in self.spec.files}
+            if len(parents) == 1:
+                return str(parents.pop())
         return self.spec.original
 
     def requires_secret_handling(self) -> bool:
-        """True when the datasource embeds credentials."""
-        return self.spec.kind in ("postgresql", "mysql") and "@" in (
-            self.spec.original.split("://", 1)[-1].split("/", 1)[0]
-        )
+        """True when the datasource embeds credentials anywhere in the URL."""
+        if self.spec.kind not in ("postgresql", "mysql"):
+            return False
+        return redact_url(self.spec.original) != self.spec.original
 
     def open(self, read_only: bool = True) -> Connection:
         """Open a connection.

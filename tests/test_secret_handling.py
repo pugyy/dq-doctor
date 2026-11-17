@@ -19,9 +19,16 @@ def test_safe_persistent_ref_never_contains_a_password():
     assert "user:***@" in safe
 
 
-def test_safe_persistent_ref_keeps_file_datasources_usable():
-    ds = DataSource(parse_spec("demo.duckdb"))
-    assert ds.safe_persistent_ref() == "demo.duckdb"
+def test_safe_persistent_ref_keeps_file_datasources_usable(tmp_root):
+    """Local paths are stored absolute so a moved contract still resolves."""
+    db = tmp_root / "demo.duckdb"
+    con = duckdb.connect(str(db))
+    con.execute("CREATE TABLE t (id INTEGER)")
+    con.close()
+    ds = DataSource(parse_spec(str(db)))
+    safe = ds.safe_persistent_ref()
+    assert safe == str(db.resolve())
+    assert DataSource(parse_spec(safe)).spec.path is not None
 
 
 def test_requires_secret_handling_flags_urls_with_userinfo():
@@ -29,6 +36,35 @@ def test_requires_secret_handling_flags_urls_with_userinfo():
         parse_spec("postgresql://u:p@h:5432/db")
     ).requires_secret_handling()
     assert DataSource(parse_spec("demo.duckdb")).requires_secret_handling() is False
+
+
+def test_query_parameter_passwords_are_redacted():
+    """`?password=` is as sensitive as `u:p@h` and must be masked."""
+    for url, secret in (
+        ("postgresql://u@h/db?password=s3cret", "s3cret"),
+        ("mysql://u@h/db?passwd=hunter2", "hunter2"),
+        ("postgresql://u@h/db?token=abc123", "abc123"),
+    ):
+        ds = DataSource(parse_spec(url))
+        assert secret not in ds.describe(), ds.describe()
+        assert secret not in ds.safe_persistent_ref(), ds.safe_persistent_ref()
+        assert ds.requires_secret_handling() is True
+
+
+def test_non_secret_query_parameters_are_kept():
+    ds = DataSource(parse_spec("postgresql://u@h/db?sslmode=require"))
+    assert "sslmode=require" in ds.describe()
+    assert ds.requires_secret_handling() is False
+
+
+def test_safe_persistent_ref_masks_both_userinfo_and_query():
+    ds = DataSource(parse_spec("postgresql://u:p@h/db?password=z&sslmode=require"))
+    safe = ds.safe_persistent_ref()
+    assert "u:***@" in safe
+    assert "password=***" in safe
+    assert "sslmode=require" in safe
+    assert ":p@" not in safe
+    assert "password=z" not in safe
 
 
 def test_rules_init_does_not_write_url_credentials(tmp_root, monkeypatch):

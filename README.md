@@ -58,7 +58,7 @@ Airflow, in exports, over MCP.
 | `regex` | text | backend-native (`regexp_matches` / `~` / `REGEXP_LIKE`) |
 | `row_count` | table | `exact`, `min`, `max` |
 | `cross_field` | two columns | `<`, `<=`, `>`, `>=`, `=`, `!=` |
-| `sql` | operator query | read-only session, external access disabled on DuckDB, single statement, timeout, scalar contract |
+| `sql` | operator query | read-only session, external access disabled on DuckDB, **unsupported on file datasources**, single statement, timeout, scalar contract |
 
 Statuses are explicit: `pass`, `fail`, `skip`, `suggestion`, `error`.
 
@@ -158,8 +158,9 @@ values; a missing or malformed contract/config produces a diagnostic and
 exit `2`.
 
 **Credentials are never written to a contract.** For a URL datasource,
-`rules-init` stores the redacted form and prints a warning; supply the real
-URL with `--db` at check time, or register an alias:
+`rules-init` stores the redacted form - userinfo passwords **and**
+secret query parameters (`?password=`) are masked - and prints a warning;
+supply the real URL with `--db` at check time, or register an alias:
 
 ```yaml
 # .dqdoctor.yml
