@@ -16,8 +16,8 @@ code keeps reporting the execution error.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Callable, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 from dqdoctor import baseline as baseline_mod
 from dqdoctor import fkcheck, rulecheck, scoring
@@ -31,7 +31,6 @@ from dqdoctor.models import (
     RuleResult,
     RuleSpec,
     RuleStatus,
-    ScoreBreakdown,
     TableCheck,
     TableProfile,
     severity_at_least,
@@ -41,14 +40,14 @@ from dqdoctor.suggest import suggest_for_table
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class CheckEngine:
     def __init__(
         self,
         datasource: DataSource,
-        clock: Optional[Callable[[], datetime]] = None,
+        clock: Callable[[], datetime] | None = None,
         sql_timeout: float = 30.0,
         include_heuristic_fk: bool = True,
     ):
@@ -59,14 +58,14 @@ class CheckEngine:
 
     def run(
         self,
-        tables: Optional[list[str]] = None,
-        contract: Optional[Contract] = None,
-        baseline: Optional[baseline_mod.Baseline] = None,
+        tables: list[str] | None = None,
+        contract: Contract | None = None,
+        baseline: baseline_mod.Baseline | None = None,
         explore: bool = False,
-        sample_rows: Optional[int] = None,
-        policy: Optional[GatePolicy] = None,
+        sample_rows: int | None = None,
+        policy: GatePolicy | None = None,
     ) -> CheckOutcome:
-        started = datetime.now(timezone.utc)
+        started = datetime.now(UTC)
         con = self.datasource.open(read_only=True)
         try:
             if con.backend != "duckdb":
@@ -96,7 +95,7 @@ class CheckEngine:
         outcome = CheckOutcome(
             dqdoctor_version=_version(),
             started_at=started.isoformat(),
-            finished_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(UTC).isoformat(),
             datasource=self.datasource.describe(),
             tables=table_checks,
             fk_issues=fk_issues,
@@ -112,9 +111,9 @@ class CheckEngine:
         self,
         con,
         table: str,
-        contract: Optional[Contract],
+        contract: Contract | None,
         explore: bool,
-        sample_rows: Optional[int],
+        sample_rows: int | None,
         fk_issues: list[FKIssue],
     ) -> TableCheck:
         try:
@@ -200,8 +199,8 @@ class CheckEngine:
 
 def decide_exit(
     outcome: CheckOutcome,
-    policy: Optional[GatePolicy],
-    baseline: Optional[baseline_mod.Baseline] = None,
+    policy: GatePolicy | None,
+    baseline: baseline_mod.Baseline | None = None,
 ) -> int:
     """0 = success/within policy, 1 = quality gate tripped, 2 = errors.
 

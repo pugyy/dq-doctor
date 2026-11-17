@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any
 
 # Word-boundary name hints: (compiled hint regex, candidate pii type).
 _NAME_HINTS: list[tuple[re.Pattern, str]] = [
@@ -91,7 +92,7 @@ def _verify(
     str_values: list[str],
     matcher: Callable[[str], bool],
     threshold: float = 0.5,
-) -> Optional[PIIEvidence]:
+) -> PIIEvidence | None:
     if not str_values:
         return None
     hits = sum(1 for v in str_values if matcher(v))
@@ -102,7 +103,7 @@ def _verify(
     return None
 
 
-def detect_pii(column_name: str, sample_values: list[Any]) -> Optional[PIIEvidence]:
+def detect_pii(column_name: str, sample_values: list[Any]) -> PIIEvidence | None:
     """Detect the PII type of a column from its name plus sample evidence.
 
     Raw sample values are inspected but never stored in the result.

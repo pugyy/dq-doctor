@@ -7,13 +7,11 @@ evidence.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from dqdoctor import aggregates, samples
 from dqdoctor.models import ColumnProfile, SamplingInfo, TableProfile
 from dqdoctor.pii import detect_pii
-from dqdoctor.scanref import full_scan, sampled_scan
 from dqdoctor.queries import table_columns
+from dqdoctor.scanref import full_scan, sampled_scan
 
 _NUMERIC_PREFIXES = (
     "int", "bigint", "smallint", "tinyint", "numeric", "decimal",
@@ -77,7 +75,7 @@ def profile_table(
     con,
     display: str,
     table: str,
-    sample_rows: Optional[int] = None,
+    sample_rows: int | None = None,
 ) -> TableProfile:
     """Profile one table on an open connection (2-3 queries + low-card extras)."""
     columns = table_columns(con, table)

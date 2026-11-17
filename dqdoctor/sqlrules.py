@@ -21,11 +21,16 @@ from dqdoctor.sqlpolicy import expect_problem, read_only_problem
 
 def check_sql(con, spec: RuleSpec, timeout: float) -> RuleResult:
     operator_query = str(spec.params.get("query") or "").strip()
-    expect = spec.params.get("expect") or {"mode": "eq", "value": 0}
+    # No default expect: a rule without an explicit comparison contract is
+    # incomplete and must SKIP (1.0 contract), not silently assume == 0.
+    expect = spec.params.get("expect")
 
     problem = read_only_problem(operator_query)
     if problem is not None:
         return _error(spec, problem)
+    if expect is None:
+        return _skip(spec, "sql rule needs params.expect, e.g. "
+                           "{mode: lte, max: 0}")
     problem = expect_problem(expect)
     if problem is not None:
         return _skip(spec, problem)

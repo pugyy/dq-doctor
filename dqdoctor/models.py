@@ -14,15 +14,15 @@ Key 1.0 semantics:
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
-from typing import Any, Literal, Optional
+from enum import StrEnum
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 Severity = Literal["high", "medium", "low"]
 
 
-class RuleStatus(str, Enum):
+class RuleStatus(StrEnum):
     PASS = "pass"
     FAIL = "fail"
     SKIP = "skip"
@@ -77,7 +77,7 @@ class ColumnProfile(BaseModel):
     sample_values: list[Any] = Field(default_factory=list, exclude=True)
     distinct_values: list[Any] = Field(default_factory=list, exclude=True)
     inferred_semantic_type: str = "unknown"
-    pii_type: Optional[str] = None
+    pii_type: str | None = None
 
 
 class TableProfile(BaseModel):
@@ -146,7 +146,7 @@ class TableCheck(BaseModel):
     rule_results: list[RuleResult] = Field(default_factory=list)
     pii_findings: list[PIIFinding] = Field(default_factory=list)
     fk_issues: list[FKIssue] = Field(default_factory=list)
-    score: Optional[int] = None
+    score: int | None = None
     score_version: str = "1.0"
     score_breakdown: ScoreBreakdown = Field(default_factory=ScoreBreakdown)
 
@@ -175,7 +175,7 @@ class CheckOutcome(BaseModel):
     datasource: str = ""  # redated display form
     tables: list[TableCheck] = Field(default_factory=list)
     fk_issues: list[FKIssue] = Field(default_factory=list)  # global, deduped
-    gate_policy: Optional[GatePolicy] = None
+    gate_policy: GatePolicy | None = None
 
     @property
     def rule_errors(self) -> list[RuleResult]:

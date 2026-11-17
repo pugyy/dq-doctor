@@ -1,50 +1,100 @@
-# Custom SQL Rules
+# Custom SQL rules (1.0)
 
-Write your own validation queries that run alongside built-in rules.
+A SQL rule is a query **you** write into your contract to check your own
+data. It runs through a guarded primitive.
 
-## In Config File
+## Contract syntax
 
 ```yaml
-# .dqdoctor.yml
+version: 1
+tables:
+  orders:
+    rules:
+      - id: orders/sql:no_negative_amounts
+        type: sql
+        column: '*'
+        params:
+          query: SELECT COUNT(*) FROM orders WHERE total_amount < 0
+          expect: {mode: eq, value: 0}
+        severity: high
+        reason: amounts must never be negative
+
+      - id: orders/sql:row_volume
+        type: sql
+        column: '*'
+        params:
+          query: SELECT COUNT(*) FROM orders
+          expect: {mode: between, min: 1000, max: 5000000}
+        severity: medium
+```
+
+## `expect` contract
+
+| Mode | Meaning | Fields |
+|---|---|---|
+| `eq` | scalar equals `value` | `value` |
+| `lte` | scalar <= `max` (or `value`) | `max` |
+| `gte` | scalar >= `min` (or `value`) | `min` |
+| `between` | `min` <= scalar <= `max` | `min`, `max` |
+
+Missing or malformed `expect` -> the rule is **SKIP**ped with a message
+(1.0 never silently assumes `== 0`).
+
+## Scalar result requirement
+
+The query must return **exactly one row and one column**. Anything else is
+an **ERROR** result:
+
+- `SELECT id, qty FROM sales` -> "query returned 2 columns"
+- `SELECT ... WHERE false` on an empty result -> "returned no rows"
+
+## Guardrails
+
+| Guard | Behaviour |
+|---|---|
+| read-only session | PostgreSQL `default_transaction_read_only`, MySQL `SET SESSION TRANSACTION READ ONLY`, DuckDB opened read-only |
+| single statement | must start with `SELECT`/`WITH`; `;` mid-query rejected |
+| timeout | `--sql-timeout` (default 30s); SQL backends use statement timeouts, DuckDB interrupts the connection |
+| error visibility | failures are `error` results -> exit code `2`, never a silent pass |
+| baseline | errors are **never** exempted |
+
+```bash
+dqdoctor check --db prod --all-tables --rules contract.yml --ci --sql-timeout 10
+```
+
+## Migration from 0.7
+
+0.7 config:
+
+```yaml
 tables:
   orders:
     sql_rules:
-      - name: no_negative_amount
-        query: "SELECT COUNT(*) FROM orders WHERE total_amount < 0"
-        expect: 0
-
-      - name: valid_status_transition
-        query: "SELECT COUNT(*) FROM orders WHERE status = 'unknown'"
+      - name: order_amount_positive
+        query: "SELECT COUNT(*) FROM orders WHERE total_amount <= 0"
         expect: 0
 ```
 
-Each rule has:
-- `name` — rule identifier
-- `query` — SQL that returns a single number
-- `expect` — expected value (pass if result equals this)
-
-## Generate Editable Rules
-
 ```bash
-dqdoctor rules-init --db demo.duckdb --table orders --out rules.yml
+dqdoctor migrate --in .dqdoctor.yml --out contract.yml
 ```
 
-This creates a YAML file with all auto-generated rules. Edit it to:
+becomes:
 
-- Set `enabled: false` to disable rules
-- Change `severity`
-- Modify `params`
-
-Then run with your rules:
-
-```bash
-dqdoctor check --db demo.duckdb --table orders --rules rules.yml
+```yaml
+- id: sql:order_amount_positive
+  type: sql
+  column: '*'
+  params:
+    query: SELECT COUNT(*) FROM orders WHERE total_amount <= 0
+    expect: {mode: eq, value: 0}
 ```
 
-## How It Works
+## Writing good rules
 
-1. Auto-generated rules run first (from profiling)
-2. Config rules apply (disable, severity override)
-3. Custom rules from `--rules` file are merged
-4. SQL rules from config execute last
-5. All results go into the HTML report
+- Return a single count or scalar; the comparison belongs in `expect`.
+- Use the table's own name in the query (`orders`, not an alias of the
+  datasource) - the query runs against the checked table's database.
+- Keep queries bounded: they run once per check, against the full table.
+- Prefer built-in rules (`row_count`, `cross_field`, `regex`) where they
+  express the same thing - they get short-circuiting and typed messages.

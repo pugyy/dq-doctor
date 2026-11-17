@@ -143,7 +143,7 @@ def _null_safe_match(con, rel: FKRelationship) -> str:
     """NULL-safe join predicate across backends (MySQL <=>, others IS NOT
     DISTINCT FROM) so composite keys with NULL parts match correctly."""
     parts = []
-    for src_c, tgt_c in zip(rel.from_columns, rel.to_columns):
+    for src_c, tgt_c in zip(rel.from_columns, rel.to_columns, strict=False):
         s = "s." + con.quote_identifier(src_c)
         t = "t." + con.quote_identifier(tgt_c)
         if con.backend == "mysql":

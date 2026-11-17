@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from dqdoctor.models import RuleResult, RuleStatus, ScoreBreakdown, TableCheck
+from dqdoctor.models import RuleStatus, ScoreBreakdown, TableCheck
 
 SCORE_VERSION = "1.0"
 WEIGHTS = {"high": 1.0, "medium": 0.5, "low": 0.25}

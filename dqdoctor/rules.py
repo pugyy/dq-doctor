@@ -11,9 +11,10 @@ values are bound as parameters so the engine never reformats them.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Callable, Optional
+from typing import Any
 
 RULE_TYPES = (
     "not_null",
@@ -132,7 +133,7 @@ def evaluate_freshness(
     """
     ts = parse_timestamp(max_value)
     now = clock()
-    local_tz = datetime.now().astimezone().tzinfo or timezone.utc
+    local_tz = datetime.now().astimezone().tzinfo or UTC
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=local_tz)
     if now.tzinfo is None:

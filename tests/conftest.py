@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dqdoctor.datasources import DataSource, parse_spec  # noqa: E402
 from dqdoctor.engine import CheckEngine  # noqa: E402
 
-FIXED_NOW = datetime(2026, 11, 17, 12, 0, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 11, 17, 12, 0, 0, tzinfo=UTC)
 
 
 def fixed_clock() -> datetime:

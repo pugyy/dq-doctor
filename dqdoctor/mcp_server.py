@@ -11,17 +11,16 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("dqdoctor.mcp")
 logger.addHandler(logging.StreamHandler(sys.stderr))
 
 
-def _config_path(config: Optional[Path]) -> Path:
+def _config_path(config: Path | None) -> Path:
     return Path(config) if config else Path(".dqdoctor.yml")
 
 
-def _resolve(name: str, config: Optional[Path]):
+def _resolve(name: str, config: Path | None):
     from dqdoctor.datasources import DataSource, load_registry, parse_spec
 
     registry = load_registry(_config_path(config))
@@ -29,7 +28,7 @@ def _resolve(name: str, config: Optional[Path]):
     return DataSource(parse_spec(spec))
 
 
-def serve(config: Optional[Path] = None) -> None:
+def serve(config: Path | None = None) -> None:
     try:
         from mcp.server.fastmcp import FastMCP
     except ImportError as exc:
@@ -72,9 +71,9 @@ def serve(config: Optional[Path] = None) -> None:
     @mcp.tool()
     def run_check(
         datasource: str,
-        table: Optional[str] = None,
+        table: str | None = None,
         all_tables: bool = True,
-        rules_path: Optional[str] = None,
+        rules_path: str | None = None,
     ) -> dict:
         """Run a check and return the full JSON outcome.
 

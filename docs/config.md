@@ -1,67 +1,77 @@
-# Configuration File
+# Configuration (1.0)
 
-Use `.dqdoctor.yml` to persist settings instead of passing flags every time.
+`.dqdoctor.yml` holds **datasource aliases** only. Rules live in the
+contract file (`contract.yml`) where they are versioned, reviewable and
+exportable.
 
-## Create Config
+```yaml
+# .dqdoctor.yml
+datasources:
+  prod: postgresql://user:pass@host:5432/db?schema=analytics
+  stage: mysql://user:pass@host:3306/db
+  local: demo.duckdb
+  exports: exports/2026-11/
+default: local
+```
+
+Create it with `dqdoctor init` (refuses to overwrite without `--force`).
+
+## Resolution order
+
+For every command taking `--db`:
+
+1. explicit `--db` (or the contract's `datasource:` when `--db` is absent);
+2. the alias/URL/path is looked up in `datasources:`;
+3. the resolved value is parsed as one of:
+
+| Form | Backend |
+|---|---|
+| `*.duckdb`, `*.db`, `*.ddb`, or an existing bare name | DuckDB file |
+| `.csv`, `.tsv`, `.parquet`, `.json`, `.jsonl`, `.ndjson` | DuckDB views over files |
+| a directory containing those files | DuckDB views (one per file) |
+| `postgresql://` / `postgres://` | PostgreSQL |
+| `mysql://` / `mysql+pymysql://` | MySQL (PyMySQL) |
+
+Anything else exits `2` with a diagnostic naming the supported forms.
+
+## Explicit flags beat config
+
+A `--db` on the command line always wins over `datasources.default` and
+over the contract's `datasource:` field. A `--config` pointing at a missing
+file, or a rules file that cannot be parsed, is a hard error (exit `2`) -
+not a silent fallback.
+
+## PostgreSQL schema
 
 ```bash
-dqdoctor init
+dqdoctor check --db "postgresql://user:pass@host/db?schema=analytics"
 ```
 
-This creates a `.dqdoctor.yml` in the current directory:
+The schema is applied as `search_path` for profiling and as the
+`information_schema` filter for metadata; FK metadata is read from the same
+schema.
 
-```yaml
-db: examples/ecommerce/demo.duckdb
-
-tables:
-  orders:
-    freshness:
-      created_at:
-        max_age_hours: 48
-    disable_rules:
-      - range:user_id
-    severity:
-      order_id:not_null: high
-    sql_rules:
-      - name: order_amount_positive
-        query: "SELECT COUNT(*) FROM orders WHERE total_amount <= 0"
-        expect: 0
-```
-
-## Use Config
+## MySQL
 
 ```bash
-dqdoctor check --config .dqdoctor.yml --table orders
+dqdoctor check --db "mysql://user:pass@host:3306/db"
 ```
 
-If `.dqdoctor.yml` exists in the current directory, it's loaded automatically (no `--config` needed).
+`mysql://` is normalized to `mysql+pymysql://` because the `[sql]` extra
+installs PyMySQL. Add `?schema=other` to target another database; it is
+folded into the URL database segment.
 
-## Config Reference
+## Credentials
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `db` | string | Default database path or connection string |
-| `tables.<name>.freshness.<col>.max_age_hours` | int | Override freshness threshold |
-| `tables.<name>.disable_rules` | list | Rules to skip (`rule_type:column` or `rule_type`) |
-| `tables.<name>.severity` | dict | Override severity (`column:rule_type: level`) |
-| `tables.<name>.sql_rules` | list | Custom SQL rules (see [custom-sql-rules.md](custom-sql-rules.md)) |
+Connection URLs are redacted (`user:***@host/db`) in every report, log
+message and error. Passwords never reach JSON, HTML, JUnit or LLM payloads.
 
-## Disable Rules
+## Migrating a 0.7 config
 
-```yaml
-tables:
-  orders:
-    disable_rules:
-      - "range:user_id"        # disable range check on user_id
-      - "freshness"            # disable all freshness checks
+```bash
+dqdoctor migrate --in .dqdoctor.yml --out contract.yml
 ```
 
-## Override Severity
-
-```yaml
-tables:
-  orders:
-    severity:
-      "order_id:not_null": high
-      "total_amount:range": critical
-```
+The old `tables:` / `disable_rules:` / `severity:` / `sql_rules:` /
+`freshness:` sections become contract rules; disabled entries stay disabled
+in the contract. See [migration-1.0.md](migration-1.0.md).

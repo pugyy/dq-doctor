@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from dqdoctor.models import CheckOutcome, FKIssue, RuleResult, RuleStatus
+from dqdoctor.models import CheckOutcome, FKIssue, RuleStatus
 
 
 class BaselineEntry(BaseModel):

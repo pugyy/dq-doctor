@@ -6,10 +6,10 @@ so the policy side is trivially auditable.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 
-def read_only_problem(operator_query: str) -> Optional[str]:
+def read_only_problem(operator_query: str) -> str | None:
     """Return a problem description, or None for an acceptable query."""
     if not operator_query.strip():
         return "empty query"
@@ -21,7 +21,7 @@ def read_only_problem(operator_query: str) -> Optional[str]:
     return None
 
 
-def expect_problem(expect: Any) -> Optional[str]:
+def expect_problem(expect: Any) -> str | None:
     if not isinstance(expect, dict):
         return "expect must be a mapping like {mode: lte, max: 5}"
     if expect.get("mode", "eq") not in ("eq", "lte", "gte", "between"):

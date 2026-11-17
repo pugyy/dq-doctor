@@ -7,25 +7,28 @@ All execution lives in ``dqdoctor.engine.CheckEngine``. Exit codes:
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from dqdoctor import __version__, baseline as baseline_mod, contract as contract_mod
-from dqdoctor.contract import Contract, ContractError
+from dqdoctor import __version__
+from dqdoctor import baseline as baseline_mod
+from dqdoctor import contract as contract_mod
+from dqdoctor.contract import ContractError
 from dqdoctor.datasources import (
-    DatasourceError,
     DataSource,
+    DatasourceError,
+)
+from dqdoctor.datasources import (
     resolve as resolve_datasource,
 )
 from dqdoctor.engine import CheckEngine, decide_exit
 from dqdoctor.models import CheckOutcome, GatePolicy, RuleStatus
-from dqdoctor.outputs import write_html, write_junit, write_json
+from dqdoctor.outputs import write_html, write_json, write_junit
 
 app = typer.Typer(
     name="dqdoctor",
@@ -69,7 +72,7 @@ def _multi_out(out: Path, table: str) -> Path:
     return out.with_name(f"{out.stem}_{_safe_stem(table)}{out.suffix}")
 
 
-def _resolve_ds(db: Optional[str], config: Optional[Path]) -> DataSource:
+def _resolve_ds(db: str | None, config: Path | None) -> DataSource:
     if db is None and config is None and not Path(".dqdoctor.yml").exists():
         _fail("--db is required (or register datasources in .dqdoctor.yml via `dqdoctor init`).")
     try:
@@ -92,7 +95,7 @@ def _atomic_write(path: Path, writer) -> Path:
 
 @app.command()
 def demo(
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output DuckDB path"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output DuckDB path"),
     dirty: bool = typer.Option(False, "--dirty", help="Demo data with intentional issues"),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing file"),
 ) -> None:
@@ -109,6 +112,59 @@ def demo(
     creator(str(db_path))
     console.print(f"[green]Demo database created:[/green] {db_path}")
     console.print(f"[dim]Next: dqdoctor check --db {db_path} --all-tables[/dim]")
+
+
+@app.command()
+def doctor() -> None:
+    """Check installation health: core deps, optional extras, package data."""
+    import importlib
+    import sys
+
+    console.print(Panel(f"[bold]dq-doctor[/bold]  v{__version__}", border_style="blue",
+                        expand=False))
+    checks: list[tuple[str, bool, str, bool]] = []  # name, ok, detail, optional
+
+    py = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    py_ok = sys.version_info >= (3, 12)
+    checks.append(("Python version", py_ok,
+                   py + (" OK" if py_ok else " FAIL: 1.0 needs 3.12+"), False))
+    checks.append(("dq-doctor version", True, __version__, False))
+
+    try:
+        import duckdb
+
+        checks.append(("DuckDB", True, duckdb.__version__, False))
+    except ImportError:
+        checks.append(("DuckDB", False, "not installed", False))
+
+    template = Path(__file__).parent / "templates" / "report.html"
+    checks.append(("Report template", template.exists(),
+                   "OK" if template.exists() else "MISSING", False))
+    for name, extra in (("sqlalchemy", "sql"), ("psycopg2", "sql"),
+                        ("pymysql", "sql"), ("openai", "llm"),
+                        ("flask", "dashboard"), ("mcp", "mcp")):
+        try:
+            mod = importlib.import_module(name)
+            checks.append((name, True, getattr(mod, "__version__", "installed"), True))
+        except ImportError:
+            checks.append((f"{name} [{extra}]", False, f"not installed "
+                           f"(pip install 'dq-doctor[{extra}]')", True))
+
+    table = Table()
+    table.add_column("Check", style="bold")
+    table.add_column("Status")
+    table.add_column("Detail")
+    core_ok = True
+    for name, ok, detail, optional in checks:
+        icon = ("[green]OK[/green]" if ok
+                else "[yellow]--[/yellow]" if optional
+                else "[red]MISS[/red]")
+        if not ok and not optional:
+            core_ok = False
+        table.add_row(name, icon, detail)
+    console.print(table)
+    console.print("[green]All core checks passed.[/green]" if core_ok
+                  else "[red]Some core checks failed.[/red]")
 
 
 @app.command()
@@ -136,8 +192,8 @@ def init(
 
 @app.command()
 def tables(
-    db: Optional[str] = typer.Option(None, "--db", help="Datasource spec or alias"),
-    config: Optional[Path] = typer.Option(None, "--config", help="Config file path"),
+    db: str | None = typer.Option(None, "--db", help="Datasource spec or alias"),
+    config: Path | None = typer.Option(None, "--config", help="Config file path"),
 ) -> None:
     """List tables in a datasource."""
     ds = _resolve_ds(db, config)
@@ -162,16 +218,15 @@ def tables(
 
 @app.command()
 def profile(
-    db: Optional[str] = typer.Option(None, "--db", help="Datasource spec or alias"),
+    db: str | None = typer.Option(None, "--db", help="Datasource spec or alias"),
     table: str = typer.Option(..., "--table", help="Table name"),
-    sample_rows: Optional[int] = typer.Option(
+    sample_rows: int | None = typer.Option(
         None, "--sample-rows", help="Deterministic first-N sampling for profiling"
     ),
-    out: Optional[Path] = typer.Option(None, "--out", help="Save profile JSON (redacted)"),
+    out: Path | None = typer.Option(None, "--out", help="Save profile JSON (redacted)"),
 ) -> None:
     """Profile one table (batched aggregates + PII evidence)."""
     ds = _resolve_ds(db, None)
-    engine = CheckEngine(ds)
     con = ds.open()
     try:
         from dqdoctor.profiling import profile_table
@@ -219,24 +274,24 @@ def json_safe_profile(result) -> str:
 
 @app.command()
 def check(
-    db: Optional[str] = typer.Option(None, "--db", help="Datasource spec or alias"),
-    table: Optional[str] = typer.Option(None, "--table", help="Table to check"),
+    db: str | None = typer.Option(None, "--db", help="Datasource spec or alias"),
+    table: str | None = typer.Option(None, "--table", help="Table to check"),
     all_tables: bool = typer.Option(False, "--all-tables", help="Check every table"),
-    rules: Optional[Path] = typer.Option(
+    rules: Path | None = typer.Option(
         None, "--rules", help="1.0 contract file (pinned rules; no re-learning)"
     ),
     out: Path = typer.Option(Path("report.html"), "--out", help="HTML report path"),
-    json_out: Optional[Path] = typer.Option(None, "--json", help="JSON report path"),
-    junit_out: Optional[Path] = typer.Option(None, "--junit", help="JUnit XML path"),
+    json_out: Path | None = typer.Option(None, "--json", help="JSON report path"),
+    junit_out: Path | None = typer.Option(None, "--junit", help="JUnit XML path"),
     ci: bool = typer.Option(False, "--ci", help="Apply gate and exit codes"),
     max_failures: int = typer.Option(0, "--max-failures", help="Gate: allowed failures"),
     fail_on: str = typer.Option(
         "low", "--fail-on", help="Gate: trip on failures at this severity or higher"
     ),
-    baseline: Optional[Path] = typer.Option(None, "--baseline", help="Known-failure baseline"),
-    sample_rows: Optional[int] = typer.Option(None, "--sample-rows", help="Profiling sampling"),
+    baseline: Path | None = typer.Option(None, "--baseline", help="Known-failure baseline"),
+    sample_rows: int | None = typer.Option(None, "--sample-rows", help="Profiling sampling"),
     sql_timeout: float = typer.Option(30.0, "--sql-timeout", help="SQL rule timeout (s)"),
-    config: Optional[Path] = typer.Option(None, "--config", help="Config file path"),
+    config: Path | None = typer.Option(None, "--config", help="Config file path"),
 ) -> None:
     """Run a check.
 
@@ -365,8 +420,10 @@ def _render_outcome(outcome: CheckOutcome, contract_mode: bool) -> None:
 
 @app.command("rules-init")
 def rules_init(
-    db: Optional[str] = typer.Option(None, "--db", help="Datasource spec or alias"),
-    table: Optional[str] = typer.Option(None, "--table", help="Table (repeatable not supported; use --all-tables)"),
+    db: str | None = typer.Option(None, "--db", help="Datasource spec or alias"),
+    table: str | None = typer.Option(
+        None, "--table", help="Table name (use --all-tables for every table)"
+    ),
     all_tables: bool = typer.Option(False, "--all-tables", help="Contract for every table"),
     out: Path = typer.Option(Path("contract.yml"), "--out", help="Contract output path"),
 ) -> None:
@@ -402,8 +459,8 @@ def rules_init(
 @app.command()
 def baseline(
     action: str = typer.Argument(..., help="capture | help"),
-    db: Optional[str] = typer.Option(None, "--db", help="Datasource spec or alias"),
-    rules: Optional[Path] = typer.Option(None, "--rules", help="Contract file"),
+    db: str | None = typer.Option(None, "--db", help="Datasource spec or alias"),
+    rules: Path | None = typer.Option(None, "--rules", help="Contract file"),
     all_tables: bool = typer.Option(True, "--all-tables", help="Capture across tables"),
     out: Path = typer.Option(Path("baseline.json"), "--out", help="Baseline output"),
 ) -> None:
@@ -420,7 +477,7 @@ def baseline(
     engine = CheckEngine(ds)
     outcome = engine.run(tables=None if all_tables else None, contract=contract,
                          explore=contract is None)
-    base = baseline_mod.capture(outcome, datetime.now(timezone.utc).isoformat())
+    base = baseline_mod.capture(outcome, datetime.now(UTC).isoformat())
     baseline_mod.save_baseline(base, out)
     console.print(f"[green]Baseline captured:[/green] {out} "
                   f"({len(base.entries)} known rule failures, "
@@ -453,7 +510,7 @@ def export(
     out: Path = typer.Option(..., "--out", help="Output file"),
 ) -> None:
     """Export a contract (preserving overrides/disables/params)."""
-    from dqdoctor.exporters import deequ, dbt, gx, markdown, soda
+    from dqdoctor.exporters import dbt, deequ, gx, markdown, soda
 
     try:
         contract = contract_mod.load_contract(rules)
@@ -490,7 +547,7 @@ def drift(
 
 @app.command()
 def mcp(
-    config: Optional[Path] = typer.Option(None, "--config", help="Config file path"),
+    config: Path | None = typer.Option(None, "--config", help="Config file path"),
 ) -> None:
     """Run a stdio MCP server (tools: list/profile/check/summary)."""
     try:

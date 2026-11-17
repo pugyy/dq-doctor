@@ -93,7 +93,6 @@ def test_markdown_lists_every_rule(sample_contract):
 def test_report_json_redacts_text_min_max(clean_db, tmp_root):
     from dqdoctor.engine import CheckEngine
     from dqdoctor.outputs import write_json
-
     from tests.conftest import fixed_clock
 
     ds = DataSource(parse_spec(str(clean_db)))
@@ -109,7 +108,6 @@ def test_report_json_redacts_text_min_max(clean_db, tmp_root):
 def test_pii_findings_never_include_values(tmp_root):
     from dqdoctor.engine import CheckEngine
     from dqdoctor.outputs import write_json
-
     from tests.conftest import fixed_clock
 
     path = tmp_root / "p.duckdb"

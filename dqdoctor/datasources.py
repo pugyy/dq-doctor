@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlsplit
 
 from dqdoctor.fileviews import register_file_views
@@ -65,10 +65,10 @@ class ConnectionSpec:
     kind: str  # duckdb | files | postgresql | mysql
     original: str  # what the user passed
     display: str  # redacted for logs/reports
-    url: Optional[str] = None  # sqlalchemy URL (sql backends)
-    path: Optional[Path] = None  # duckdb file
-    files: Optional[list[Path]] = None  # csv/parquet/json files
-    schema: Optional[str] = None  # non-default schema/database for sql backends
+    url: str | None = None  # sqlalchemy URL (sql backends)
+    path: Path | None = None  # duckdb file
+    files: list[Path] | None = None  # csv/parquet/json files
+    schema: str | None = None  # non-default schema/database for sql backends
 
 
 def redact_url(url: str) -> str:
@@ -86,7 +86,7 @@ def redact_url(url: str) -> str:
     return f"{parts.scheme}://{userinfo}{host}{parts.path}"
 
 
-def _sql_url(spec: str) -> tuple[str, str, Optional[str]]:
+def _sql_url(spec: str) -> tuple[str, str, str | None]:
     """Normalize a SQL URL to (kind, sqlalchemy_url, schema)."""
     parts = urlsplit(spec)
     scheme = parts.scheme.lower()
@@ -116,7 +116,7 @@ def _sql_url(spec: str) -> tuple[str, str, Optional[str]]:
     return kind, url, schema
 
 
-def parse_spec(spec: str, base_dir: Optional[Path] = None) -> ConnectionSpec:
+def parse_spec(spec: str, base_dir: Path | None = None) -> ConnectionSpec:
     """Parse a datasource string into a ConnectionSpec (light I/O for dirs)."""
     spec = spec.strip()
     if not spec:
@@ -160,7 +160,7 @@ def parse_spec(spec: str, base_dir: Optional[Path] = None) -> ConnectionSpec:
 @dataclass
 class Registry:
     datasources: dict[str, str] = field(default_factory=dict)
-    default: Optional[str] = None
+    default: str | None = None
 
 
 def load_registry(path: Path) -> Registry:
@@ -192,8 +192,8 @@ class Connection:
     driver connection) and ``query_count`` (instrumentation).
     """
 
-    def __init__(self, raw: Any, backend: str, source_kind: Optional[str] = None,
-                 sql_schema: str = "public", mysql_schema: Optional[str] = None):
+    def __init__(self, raw: Any, backend: str, source_kind: str | None = None,
+                 sql_schema: str = "public", mysql_schema: str | None = None):
         self._raw = raw
         self.backend = backend
         self.source_kind = source_kind or backend
@@ -209,7 +209,7 @@ class Connection:
             return "`" + name + "`"
         return '"' + name + '"'
 
-    def quote_qualified(self, table: str, schema: Optional[str] = None) -> str:
+    def quote_qualified(self, table: str, schema: str | None = None) -> str:
         parts = []
         if schema:
             parts.append(self.quote_identifier(schema, "schema name"))
@@ -371,8 +371,8 @@ class DataSource:
 
 def resolve(
     spec: str,
-    config_path: Optional[Path] = None,
-    base_dir: Optional[Path] = None,
+    config_path: Path | None = None,
+    base_dir: Path | None = None,
 ) -> DataSource:
     """Resolve a CLI/config datasource string (alias, URL, or path)."""
     registry = load_registry(config_path if config_path else Path(".dqdoctor.yml"))

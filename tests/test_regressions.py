@@ -1,7 +1,7 @@
 """Regressions for the specific 0.7 bugs reproduced before the rewrite."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import duckdb
 import pytest
@@ -14,7 +14,7 @@ from dqdoctor.profiling import infer_semantic_type
 
 
 def _clock():
-    return datetime(2026, 11, 17, 12, 0, 0, tzinfo=timezone.utc)
+    return datetime(2026, 11, 17, 12, 0, 0, tzinfo=UTC)
 
 
 def _engine(path):
@@ -129,8 +129,8 @@ def test_pii_hint_falls_through_to_patterns():
 
 def test_empty_table_pass_not_suggestion():
     """0.7 reported executed-on-empty rules as SUGGEST (total_count == 0)."""
-    from pathlib import Path
     import tempfile
+    from pathlib import Path
 
     path = Path(tempfile.mkdtemp()) / "empty.duckdb"
     con = duckdb.connect(str(path))

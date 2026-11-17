@@ -8,10 +8,13 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }}, ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v4
@@ -32,14 +35,37 @@ jobs:
       - name: Run tests
         run: pytest tests/ -v --cov=dqdoctor --cov-report=xml
 
+      - name: End-to-end CLI (demo -> check -> rules-init -> check -> export)
+        shell: bash
+        run: |
+          dqdoctor --version
+          dqdoctor doctor || true
+          dqdoctor demo --dirty --output smoke.duckdb
+          dqdoctor tables --db smoke.duckdb
+          dqdoctor rules-init --db smoke.duckdb --all-tables --out c.yml
+          set +e
+          dqdoctor check --db smoke.duckdb --all-tables --rules c.yml --out r.html --json r.json --ci
+          gate=$?
+          set -e
+          test "$gate" = "1" || (echo "expected gate exit 1, got $gate"; exit 1)
+          set +e
+          dqdoctor check --db smoke.duckdb --all-tables --rules missing.yml > /dev/null 2>&1
+          missing=$?
+          set -e
+          test "$missing" = "2" || (echo "expected config error exit 2, got $missing"; exit 1)
+          dqdoctor export --rules c.yml --format dbt --out schema.yml
+          dqdoctor export --rules c.yml --format gx --out suite.json
+          dqdoctor export --rules c.yml --format soda --out checks.yml
+
       - name: Upload coverage
-        if: matrix.python-version == '3.12'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.xml
 
   integration:
+    name: SQL backends (PostgreSQL + MySQL)
     runs-on: ubuntu-latest
 
     services:
@@ -85,111 +111,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,sql]"
 
-      - name: Setup test data in PostgreSQL
+      - name: Run cross-backend tests
         env:
-          PGHOST: 127.0.0.1
-          PGUSER: dqtest
-          PGPASSWORD: dqtest
-          PGDATABASE: dqtest
+          DQTEST_PG: postgresql://dqtest:dqtest@127.0.0.1:5432/dqtest
+          DQTEST_MYSQL: mysql://dqtest:dqtest@127.0.0.1:3306/dqtest
+        run: pytest tests/test_backends.py -v
+
+  build:
+    name: build wheel + sdist and install from wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
         run: |
-          python -c "
-          import psycopg2
-          con = psycopg2.connect(host='127.0.0.1', user='dqtest', password='dqtest', dbname='dqtest')
-          cur = con.cursor()
-          cur.execute('''
-            CREATE TABLE orders (
-              order_id INTEGER PRIMARY KEY,
-              user_id INTEGER NOT NULL,
-              status VARCHAR(20) NOT NULL,
-              total_amount DECIMAL(10,2) NOT NULL,
-              created_at TIMESTAMP DEFAULT NOW()
-            );
-            INSERT INTO orders (order_id, user_id, status, total_amount) VALUES
-              (1, 101, 'pending', 100.00),
-              (2, 102, 'shipped', 200.00),
-              (3, 103, 'delivered', 300.00);
-          ''')
-          con.commit()
-          con.close()
-          "
-
-      - name: Setup test data in MySQL
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Install wheel in a clean venv
         run: |
-          python -c "
-          import pymysql
-          con = pymysql.connect(host='127.0.0.1', user='dqtest', password='dqtest', database='dqtest')
-          cur = con.cursor()
-          cur.execute('''
-            CREATE TABLE orders (
-              order_id INTEGER PRIMARY KEY,
-              user_id INTEGER NOT NULL,
-              status VARCHAR(20) NOT NULL,
-              total_amount DECIMAL(10,2) NOT NULL,
-              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-          ''')
-          cur.execute('''INSERT INTO orders (order_id, user_id, status, total_amount) VALUES
-            (1, 101, 'pending', 100.00),
-            (2, 102, 'shipped', 200.00),
-            (3, 103, 'delivered', 300.00)''')
-          con.commit()
-          con.close()
-          "
-
-      - name: Test PostgreSQL integration
-        run: |
-          python -c "
-          from dqdoctor.connectors.auto import get_connection, list_tables, get_table_columns
-          from dqdoctor.profiler import profile_table
-          from dqdoctor.rule_engine import generate_rules
-          from dqdoctor.validator import validate_rules
-
-          db = 'postgresql://dqtest:dqtest@127.0.0.1/dqtest'
-          print('=== PostgreSQL tables ===')
-          con = get_connection(db)
-          tables = list_tables(con)
-          print(tables)
-          con.close()
-
-          print('=== PostgreSQL profile ===')
-          profile = profile_table(db, 'orders')
-          print(f'Rows: {profile.row_count}, Cols: {len(profile.columns)}')
-
-          print('=== PostgreSQL check ===')
-          rules = generate_rules(profile)
-          results = validate_rules(db, 'orders', rules)
-          passed = sum(1 for r in results if r.passed)
-          failed = sum(1 for r in results if not r.passed)
-          print(f'Passed: {passed}, Failed: {failed}')
-          assert failed == 0, f'Expected 0 failures, got {failed}'
-          print('PostgreSQL integration PASSED')
-          "
-
-      - name: Test MySQL integration
-        run: |
-          python -c "
-          from dqdoctor.connectors.auto import get_connection, list_tables
-          from dqdoctor.profiler import profile_table
-          from dqdoctor.rule_engine import generate_rules
-          from dqdoctor.validator import validate_rules
-
-          db = 'mysql+pymysql://dqtest:dqtest@127.0.0.1/dqtest'
-          print('=== MySQL tables ===')
-          con = get_connection(db)
-          tables = list_tables(con)
-          print(tables)
-          con.close()
-
-          print('=== MySQL profile ===')
-          profile = profile_table(db, 'orders')
-          print(f'Rows: {profile.row_count}, Cols: {len(profile.columns)}')
-
-          print('=== MySQL check ===')
-          rules = generate_rules(profile)
-          results = validate_rules(db, 'orders', rules)
-          passed = sum(1 for r in results if r.passed)
-          failed = sum(1 for r in results if not r.passed)
-          print(f'Passed: {passed}, Failed: {failed}')
-          assert failed == 0, f'Expected 0 failures, got {failed}'
-          print('MySQL integration PASSED')
-          "
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install dist/*.whl
+          /tmp/clean/bin/dqdoctor --version
+          cd /tmp && /tmp/clean/bin/dqdoctor demo --dirty --output clean.duckdb
+          /tmp/clean/bin/dqdoctor rules-init --db clean.duckdb --all-tables --out c.yml
+          /tmp/clean/bin/dqdoctor export --rules c.yml --format dbt --out s.yml

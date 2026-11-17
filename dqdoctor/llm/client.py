@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 from dqdoctor.models import ColumnProfile, RuleSuggestion
 
@@ -58,8 +58,8 @@ def _parse_response(text: str) -> list[dict[str, Any]]:
 
 def suggest_rules_llm(
     columns: list[ColumnProfile],
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
     model: str = "deepseek-chat",
 ) -> list[RuleSuggestion]:
     if not api_key:
@@ -67,10 +67,11 @@ def suggest_rules_llm(
 
     try:
         from openai import OpenAI
-    except ImportError:
+    except ImportError as exc:
         raise ImportError(
-            "openai package is required for LLM features. Install with: pip install dq-doctor[llm]"
-        )
+            "openai package is required for LLM features. "
+            "Install with: pip install dq-doctor[llm]"
+        ) from exc
 
     client = OpenAI(api_key=api_key, base_url=base_url)
     prompt = _build_prompt(columns)

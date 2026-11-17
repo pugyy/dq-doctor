@@ -1,8 +1,6 @@
 """Engine, contract, scoring, baseline and exit-code tests."""
 from __future__ import annotations
 
-from pathlib import Path
-
 import duckdb
 import pytest
 
@@ -11,7 +9,6 @@ from dqdoctor.contract import Contract, TableRules, load_contract, save_contract
 from dqdoctor.datasources import DataSource, parse_spec
 from dqdoctor.engine import CheckEngine, decide_exit
 from dqdoctor.models import GatePolicy, RuleSpec, RuleStatus
-from dqdoctor.scoring import score_table
 
 
 def _engine(path, clock=None):

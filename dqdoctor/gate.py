@@ -10,7 +10,6 @@ Kept free of framework imports so any scheduler adapter can delegate here.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 
 class QualityGateError(RuntimeError):
@@ -23,16 +22,17 @@ class RunnerError(RuntimeError):
 
 def run_gate(
     source: str,
-    table_name: Optional[str] = None,
+    table_name: str | None = None,
     all_tables: bool = False,
-    rules_path: Optional[str] = None,
+    rules_path: str | None = None,
     max_failures: int = 0,
     fail_on: str = "low",
     out_path: str = "report.json",
 ) -> dict:
     """Run a contract check and enforce the gate; returns a per-table summary."""
     from dqdoctor.contract import ContractError, load_contract
-    from dqdoctor.datasources import DatasourceError, resolve as resolve_ds
+    from dqdoctor.datasources import DatasourceError
+    from dqdoctor.datasources import resolve as resolve_ds
     from dqdoctor.engine import CheckEngine, decide_exit
     from dqdoctor.models import GatePolicy
     from dqdoctor.outputs import write_json

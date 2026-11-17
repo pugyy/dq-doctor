@@ -10,7 +10,6 @@ reference and a fixed LIMIT literal.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -18,7 +17,7 @@ class ScanRef:
     """A FROM-clause fragment plus its bind parameters."""
 
     fragment: str
-    params: Optional[list]
+    params: list | None
 
 
 def full_scan(qt: str) -> ScanRef:

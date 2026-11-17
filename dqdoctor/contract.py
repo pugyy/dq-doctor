@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
@@ -48,7 +48,7 @@ class TableRules(BaseModel):
 
 class Contract(BaseModel):
     version: int = 1
-    datasource: Optional[str] = None
+    datasource: str | None = None
     generated_at: str = ""
     tables: dict[str, TableRules] = Field(default_factory=dict)
 
@@ -175,7 +175,7 @@ def _freeze_params(params: dict) -> dict:
 def build_contract(
     profiles: list[TableProfile],
     specs_by_table: dict[str, list[RuleSpec]],
-    datasource: Optional[str] = None,
+    datasource: str | None = None,
 ) -> Contract:
     tables: dict[str, TableRules] = {}
     for profile in profiles:
@@ -213,7 +213,7 @@ def migrate_legacy(path: Path) -> Contract:
 def _migrate_rules_file(data: dict, path: Path) -> Contract:
     table = str(data.get("table") or "TABLE_NAME")
     specs: list[RuleSpec] = []
-    for i, raw in enumerate(data.get("rules") or []):
+    for raw in data.get("rules") or []:
         rule_id = raw.get("rule_id") or raw.get("id")
         rule_type = raw.get("rule_type") or raw.get("type")
         column = raw.get("column", "*")
@@ -253,12 +253,47 @@ def _migrate_params(params: dict) -> dict:
     return migrated
 
 
+def _legacy_disabled(
+    disabled_keys: set, table_disabled_types: set, rule_type: str, column: str
+) -> bool:
+    return (
+        f"{rule_type}:{column}" in disabled_keys
+        or f"{column}:{rule_type}" in disabled_keys
+        or rule_type in table_disabled_types
+    )
+
+
+def _legacy_severity(severity_map: dict, rule_type: str, column: str, default: str) -> str:
+    for key in (f"{rule_type}:{column}", f"{column}:{rule_type}"):
+        if key in severity_map:
+            return str(severity_map[key])
+    return default
+
+
 def _migrate_config_file(data: dict, path: Path) -> Contract:
     tables: dict[str, TableRules] = {}
     for table, tc in (data.get("tables") or {}).items():
         specs: list[RuleSpec] = []
-        disabled = set(tc.get("disable_rules") or [])
+        # 0.7 disable_rules / severity overrides carry over as *disabled*
+        # contract entries plus explicit severity values, so nothing the
+        # operator configured is silently dropped by the migration.
+        disabled_keys = set(tc.get("disable_rules") or [])
         severity_map = tc.get("severity") or {}
+        table_disabled_types = {k for k in disabled_keys if ":" not in str(k)}
+
+        def _disabled(
+            rule_type: str,
+            column: str,
+            _dis=disabled_keys,
+            _types=table_disabled_types,
+        ) -> bool:
+            return _legacy_disabled(_dis, _types, rule_type, column)
+
+        def _severity(
+            rule_type: str, column: str, default: str, _sev=severity_map
+        ) -> str:
+            return _legacy_severity(_sev, rule_type, column, default)
+
         for raw in tc.get("sql_rules") or []:
             name = str(raw.get("name") or "unnamed_sql")
             expect_raw = raw.get("expect", 0)
@@ -273,9 +308,10 @@ def _migrate_config_file(data: dict, path: Path) -> Contract:
                     type="sql",
                     column="*",
                     params={"query": str(raw.get("query") or ""), "expect": expect},
-                    severity="medium",
+                    severity=_severity("sql", name, "medium"),
                     reason="migrated from .dqdoctor.yml sql_rules",
                     source="contract",
+                    enabled=not _disabled("sql", name),
                 )
             )
         freshness = tc.get("freshness") or {}
@@ -286,21 +322,30 @@ def _migrate_config_file(data: dict, path: Path) -> Contract:
                     type="freshness",
                     column=str(column),
                     params={"max_age_hours": override.get("max_age_hours", 24)},
-                    severity="high",
+                    severity=_severity("freshness", str(column), "high"),
                     reason="migrated from .dqdoctor.yml freshness override",
                     source="contract",
+                    enabled=not _disabled("freshness", str(column)),
                 )
             )
-        tr = TableRules(rules=specs)
-        note = []
-        if disabled:
-            note.append(f"disable_rules: {sorted(disabled)}")
-        if severity_map:
-            note.append(f"severity overrides: {severity_map}")
-        if note:
-            tr = TableRules(rules=specs)
-            tr.model_extra  # (pydantic keeps strictness; notes go to stderr)
-        tables[str(table)] = tr
+        for key in sorted(disabled_keys):
+            rule_type, _, column = str(key).partition(":")
+            if not column:
+                continue  # bare type disable is applied via _disabled()
+            if any(s.type == rule_type and s.column == column for s in specs):
+                continue
+            specs.append(
+                RuleSpec(
+                    id=f"{rule_type}:{column}",
+                    type=rule_type if rule_type in R.RULE_TYPES else "not_null",
+                    column=column,
+                    severity=_severity(rule_type, column, "medium"),
+                    reason="migrated from .dqdoctor.yml disable_rules",
+                    source="contract",
+                    enabled=False,
+                )
+            )
+        tables[str(table)] = TableRules(rules=specs)
     return Contract(
         version=1,
         datasource=data.get("db"),

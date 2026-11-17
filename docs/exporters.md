@@ -1,46 +1,115 @@
-# Export Formats
+# Export formats (1.0)
 
-Export auto-generated rules for integration with other tools.
-
-## dbt schema.yml
+Every exporter reads the **contract** (not a live profile), so what you
+export is exactly what you gate on: overrides, disabled rules and effective
+parameters included.
 
 ```bash
-dqdoctor export --db demo.duckdb --table orders --format dbt --out schema.yml
+dqdoctor export --rules contract.yml --format dbt      --out schema.yml
+dqdoctor export --rules contract.yml --format gx       --out suite.json
+dqdoctor export --rules contract.yml --format soda     --out checks.yml
+dqdoctor export --rules contract.yml --format deequ    --out deequ.json
+dqdoctor export --rules contract.yml --format markdown --out dict.md
 ```
 
-Generates a dbt-compatible `schema.yml` with:
-- `not_null` and `unique` as native dbt test types
-- `accepted_values` as dbt native test
-- `range` via `dbt_utils.expression_is_true` (requires dbt-utils package)
+| Exporter | Target | Version |
+|---|---|---|
+| `dbt` | dbt schema YAML | dbt >= 1.8 (`data_tests`) |
+| `gx` | Great Expectations suite JSON | GX 1.x suite shape |
+| `soda` | SodaCL checks | SodaCL `valid values` syntax |
+| `deequ` | pydeequ constraint mapping | consumer: pydeequ scripts |
+| `markdown` | contract table | - |
+
+## dbt
+
+```yaml
+version: 2
+models:
+- name: orders
+  columns:
+  - name: order_id
+    data_tests:
+    - not_null
+    - unique
+  - name: total_amount
+    data_tests:
+    - dbt_utils.expression_is_true:
+        expression: total_amount >= 0.00
+    - dbt_utils.expression_is_true:
+        expression: total_amount <= 500.00
+```
+
+- column tests use `data_tests` (the `tests:` key is deprecated);
+- numeric bounds are emitted **unquoted** even when the contract stores
+  them as strings for precision;
+- `range` requires the `dbt_utils` package;
+- rule types without a dbt equivalent (e.g. `freshness`) are listed in the
+  file header as comments - they do not disappear silently.
 
 ## Great Expectations
 
-```bash
-dqdoctor export --db demo.duckdb --table orders --format gx --out suite.json
+```json
+{
+  "suites": [
+    {
+      "version": "1.0",
+      "type": "ExpectationSuite",
+      "name": "orders.suite",
+      "expectations": [
+        {"type": "expect_column_values_to_not_be_null",
+         "kwargs": {"column": "order_id"},
+         "meta": {"severity": "high", "source": "dq-doctor"}}
+      ],
+      "meta": {"unmapped_rule_ids": []}
+    }
+  ]
+}
 ```
 
-Generates an Expectation Suite JSON.
+0.7 emitted the 0.x shape (`expectation_suite_name` / `expectation_type`),
+which GX 1.x cannot load.
 
-## Soda CL
+## SodaCL
 
-```bash
-dqdoctor export --db demo.duckdb --table orders --format soda --out checks.yml
+```yaml
+checks for orders:
+  - missing_count(order_id) = 0
+  - duplicate_count(order_id) = 0
+  - invalid_count(status) = 0:
+      valid values: ['paid', 'refunded']
+  - min(total_amount) >= 0.00
+  - max(total_amount) <= 500.00
+  - freshness(created_at) < 24h
 ```
 
-Generates Soda CL checks using `missing_count`, `duplicate_count`, `invalid_count` metrics.
+0.7 emitted an inline `{ values: [...] }` map that SodaCL does not
+recognize.
 
 ## Deequ
 
-```bash
-dqdoctor export --db demo.duckdb --table orders --format deequ --out checks.json
+Deequ has no official JSON interchange format. This export is a
+**pydeequ constraint plan**:
+
+```json
+{"version": "1.0", "datasets": [{"dataset": "orders", "engine": "pydeequ",
+  "checks": [{"constraint": "HasCompleteness",
+              "kwargs": {"column": "order_id"},
+              "rule_id": "orders/not_null:order_id"}]}]}
 ```
 
-Generates Deequ-style constraint JSON.
+## Markdown
 
-## Markdown Data Dictionary
+A table per model listing rule id, type, column, severity, params and
+enabled flag (disabled rules stay visible).
 
-```bash
-dqdoctor export --db demo.duckdb --table orders --format markdown --out dict.md
-```
+## Unmapped rules
 
-Generates a human-readable data dictionary with column types, stats, and quality notes.
+Rule types without an equivalent in the target never vanish:
+
+| Exporter | Where unmapped rules appear |
+|---|---|
+| dbt | `#` comment block at the top of the file |
+| GX | `meta.unmapped_rule_ids` |
+| Soda | `# unmapped rules` comment block |
+| Deequ | `unmapped_rule_ids` per dataset |
+| markdown | full table (nothing is dropped) |

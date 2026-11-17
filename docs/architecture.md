@@ -1,67 +1,79 @@
-# Architecture
+# Architecture (1.0)
 
-## Data Flow
+## Module map
+
+| Module | Responsibility |
+|---|---|
+| `datasources.py` | spec parsing (URL/path/alias), connection lifecycle, identifier quoting, schema selection, read-only sessions, timeouts, credential redaction |
+| `queries.py` | metadata lookups (tables, columns) with bound parameters |
+| `fileviews.py` | registers CSV/Parquet/JSON files as DuckDB views (the one place a path becomes SQL text, isolated and escaped) |
+| `profiling.py` | table profiling orchestration (semantics, sampling info, PII evidence) |
+| `aggregates.py` / `scanref.py` / `samples.py` | batched aggregate SQL, scan references, sample fetches |
+| `rules.py` | rule types, parameter validation, numeric precision, freshness clock math |
+| `rulecheck.py` | built-in rule execution (reuses profile aggregates, short-circuits) |
+| `sqlrules.py` / `sqlpolicy.py` / `sqlexec.py` | guarded operator SQL rules: shape policy, scalar contract, execution primitive |
+| `fkdeclared.py` / `fkcheck.py` | declared FK metadata, heuristic candidates, orphan checks |
+| `contract.py` | contract load/save, validation, legacy migration |
+| `suggest.py` | explore-mode suggestions (never executed) |
+| `scoring.py` | severity-weighted score with breakdown |
+| `engine.py` | one run: connection, FK plan, per-table profile+rules+score, baseline, exit decision |
+| `gate.py` | scheduler-facing `run_gate` + Airflow operator |
+| `outputs.py` | JSON / JUnit / HTML writers (redacted) |
+| `redact.py` | value fingerprinting and payload redaction |
+| `pii.py` | PII detection with evidence |
+| `exporters/*` | dbt / GX / Soda / Deequ / markdown |
+| `mcp_server.py` | stdio MCP tools over the engine |
+| `dashboard.py` | read-only web view over a JSON report |
+| `cli.py` | parameter handling and rendering only |
+| `demo.py` | demo database creation (atomic replace) |
+
+## One run
 
 ```
-dqdoctor check --db X --table T
-  → profiler.profile_table(db, table) → ProfileResult
-  → rule_engine.generate_rules(profile) → list[RuleSuggestion]
-  → validator.validate_rules(db, table, rules) → list[ValidationResult]
-  → reporter.build_report(profile, rules, results) → ReportResult
-  → reporter.save_html(report, path) → HTML file
+resolve(datasource) ──> open connection (read-only)
+        │
+        ├─ FK plan (declared + heuristic candidates) ──> check each once
+        │
+        └─ for each table:
+             profile_table()            # 1 aggregate + a few extras
+                │
+                ├─ contract mode: execute_rules() + sql rules
+                └─ explore mode:  suggest_for_table() -> SUGGESTIONs
+                │
+                └─ score_table() -> severity-weighted score / None
+
+apply_baseline()  -> exempt known failures (deterioration still gates)
+decide_exit()     -> 0 / 1 / 2    (single decision point)
 ```
 
-## Project Structure
+The CLI, the Airflow operator, exporters and the MCP server all call
+`CheckEngine.run` (or `gate.run_gate`), so a rule means the same thing
+everywhere.
 
-```
-dqdoctor/
-  cli.py            Typer CLI (15 commands)
-  models.py         Pydantic models
-  profiler.py       Column profiling + semantic inference + PII detection
-  rule_engine.py    5 heuristic rules + LLM integration
-  validator.py      Rule execution via ConnectionWrapper
-  reporter.py       HTML report via Jinja2
-  config.py         .dqdoctor.yml loader
-  demo.py           Demo database generation
-  custom_rules.py   Load/merge custom rules (JSON/YAML)
-  sql_rules.py      Execute custom SQL validation rules
-  drift.py          Profile save/load/drift comparison
-  pii_detector.py   PII regex detection
-  fk_discovery.py   Cross-table FK discovery
-  correlation.py    Column correlation (Pearson)
-  lineage.py        Data lineage (FK + correlation)
-  ref_integrity.py  Referential integrity checker
-  dashboard.py      Flask web dashboard
-  connectors/
-    auto.py         ConnectionWrapper (DuckDB/PG/MySQL)
-  exporters/
-    dbt.py, gx.py, markdown.py, soda.py, deequ.py
-  llm/
-    client.py       OpenAI-compatible LLM client
-  providers/
-    airflow.py      Airflow operator
-  templates/
-    report.html     Jinja2 HTML template
-  data/
-    seed.sql        Clean demo data
-    dirty_seed.sql  Dirty demo data (intentional issues)
-```
+## Rule semantics
 
-## Supported Rules
+- The **profile** is computed once per table and reused: `not_null`,
+  `unique`, `freshness`, `row_count` need no extra query; `range` and
+  `accepted_values` short-circuit when the profiled bounds prove the answer.
+- Values never enter SQL text. Statements combine literals,
+  allowlist-quoted identifiers and bound parameters.
+- Sampling affects profiling only; rules always scan the full table.
 
-| Rule | Trigger | Example |
-|------|---------|---------|
-| `not_null` | Zero nulls or identifier field | `order_id` has no nulls |
-| `unique` | Identifier with ≥98% distinct rate | `user_id` is nearly unique |
-| `accepted_values` | Category field with ≤20 distinct values | `status` has 4 values |
-| `range` | Numeric column | `total_amount` in [45.00, 680.00] |
-| `freshness` | Timestamp field | `created_at` within 24h |
+## Status model
 
-## Semantic Type Inference
+| Status | Counted in score | Gates CI |
+|---|---|---|
+| `pass` | yes | no |
+| `fail` | yes | yes (subject to `--fail-on` / `--max-failures` / baseline) |
+| `skip` | no | no |
+| `suggestion` | no | no |
+| `error` | no | yes (exit `2`) |
 
-Column name pattern matching:
-- `*id*` → identifier
-- `*price*`, `*amount*`, `*cost*` → measure
-- `*status*`, `*type*`, `*category*` → category
-- `*time*`, `*date*`, `*at` → timestamp
-- Unmatched → unknown
+## Extension points
+
+- New rule type: add a checker in `rulecheck.py` (register in `_DISPATCH`)
+  and a validator in `rules.py`.
+- New export target: add `exporters/<name>.py` with `save(contract, path)`.
+- New scheduler: call `dqdoctor.gate.run_gate`.
+- New datasource backend: extend `datasources.parse_spec` and `Connection`
+  (placeholder token + backend name).

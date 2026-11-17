@@ -17,11 +17,11 @@ value is bound as a parameter.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable
 
-from dqdoctor.models import RuleResult, RuleSpec, RuleStatus, TableProfile
 from dqdoctor import rules as R
+from dqdoctor.models import RuleResult, RuleSpec, RuleStatus, TableProfile
 
 
 def execute_rules(
