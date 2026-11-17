@@ -26,3 +26,8 @@ venv/
 coverage.xml
 htmlcov/
 .mimosa/
+
+# test/benchmark artifacts
+*.parquet
+*.csv
+!docs/**/*.csv
