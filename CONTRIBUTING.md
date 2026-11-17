@@ -24,7 +24,7 @@ Python **3.12+** is required.
 ## Running Tests
 
 ```bash
-pytest tests/ -q    # 231 tests, should all pass
+pytest tests/ -q    # 216 passed, 11 skipped locally (227 collected)
 ```
 
 Tests use `tmp_path` / `tmp_root` fixtures for isolated DuckDB databases.

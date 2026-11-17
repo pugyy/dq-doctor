@@ -14,7 +14,7 @@
   <a href="https://pypi.org/project/dq-doctor/"><img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-blue"></a>
   <a href="https://github.com/pugyy/dq-doctor/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/pugyy/dq-doctor/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/pugyy/dq-doctor/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-yellow"></a>
-  <a href="https://github.com/pugyy/dq-doctor"><img alt="Tests" src="https://img.shields.io/badge/tests-231%20passed-brightgreen"></a>
+  <a href="https://github.com/pugyy/dq-doctor"><img alt="Tests" src="https://img.shields.io/badge/tests-216%20passed%2C%2011%20skipped-brightgreen"></a>
 </p>
 
 ```bash
@@ -424,7 +424,8 @@ On the reference benchmark:
 - DuckDB 1.x, PostgreSQL 16.2, MySQL 9.5 tested with real servers.
 - dbt `data_tests` with nested `arguments` (dbt >= 1.10.5), Great Expectations
   1.x suite shape, SodaCL, Deequ and Markdown exports.
-- `231` tests, `~84.7%` statement coverage, Ruff clean.
+- `216` tests passed, `11` skipped in the local environment (optional
+  backend/dashboard extras absent); Ruff clean.
 - MCP stdio round-trip tested with the official client (SDK 1.x).
 
 Known limits: heuristic FKs are name-based candidates (declared keys always
@@ -818,7 +819,7 @@ dqdoctor/
 - CI 矩阵覆盖 Python 3.12、3.13、3.14；本地主版本 3.12。
 - DuckDB 1.x、PostgreSQL 16.2、MySQL 9.5 用真实服务测过。
 - dbt `data_tests` + 嵌套 `arguments`（dbt >= 1.10.5）、Great Expectations 1.x、SodaCL、Deequ、Markdown 导出。
-- **231** 个测试，约 **84.7%** 语句覆盖率，Ruff 全绿。
+- 本地 **216** 通过、**11** 跳过（缺可选后端/面板 extras）；Ruff 全绿。
 - MCP stdio 往返用官方客户端测过（SDK 1.x）。
 
 已知边界：启发式 FK 是基于命名的候选（声明外键优先）；`freshness` 把无时区时间当作本地墙上时间；PII 检测是初筛不是合规工具；文件源不支持 SQL 规则；CI 是最终门禁，建议在你的 fork 上跑一次。

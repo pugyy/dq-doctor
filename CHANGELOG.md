@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.0.9 — 2026-11-18
+
+Documentation-only maintenance release. No runtime behavior changed.
+
+### Fixed
+
+- `docs/limitations.md` now points at the 1.0.8 CI run that actually exists,
+  instead of the deleted pre-rebuild run.
+- README and CONTRIBUTING now report the local suite accurately: 216 passed,
+  11 skipped (227 collected) when optional backend/dashboard extras are absent.
+
+### Upgrade
+
+```bash
+pip install -U dq-doctor==1.0.9
+```
+
 ## v1.0.8 — 2026-11-18
 
 Maintenance release after the repository rebuild. No runtime behavior changed.
