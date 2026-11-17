@@ -41,6 +41,10 @@ def execute_rules(
             continue
         checker = _DISPATCH.get(spec.type)
         if checker is None:
+            if spec.type == "sql":
+                # SQL rules are executed by the engine via dqdoctor.sqlrules
+                # (guarded primitive); skip here so they are not double-run.
+                continue
             results.append(_skip(spec, f"unknown rule type {spec.type}"))
             continue
         try:

@@ -184,17 +184,9 @@ class CheckEngine:
         return check
 
     def _sql_rules(self, con, specs: list[RuleSpec]) -> list[RuleResult]:
-        try:
-            from dqdoctor.sqlrules import check_sql
-        except ImportError:
-            return [
-                RuleResult(
-                    rule_id=s.id, rule_type="sql", column="*",
-                    status=RuleStatus.ERROR, message="sql rules unavailable",
-                    source=s.source,
-                )
-                for s in specs if s.type == "sql"
-            ]
+        """Execute opt-in SQL rules through the guarded primitive."""
+        from dqdoctor.sqlrules import check_sql
+
         return [
             check_sql(con, s, self.sql_timeout)
             for s in specs
@@ -211,7 +203,14 @@ def decide_exit(
     policy: Optional[GatePolicy],
     baseline: Optional[baseline_mod.Baseline] = None,
 ) -> int:
-    """0 = success/within policy, 1 = quality gate tripped, 2 = errors."""
+    """0 = success/within policy, 1 = quality gate tripped, 2 = errors.
+
+    Gate semantics (documented in README):
+    - ``--fail-on`` selects which failures participate at all; failures
+      below the threshold are reported but do not gate.
+    - ``--max-failures`` tolerates up to N *participating* failures.
+    So a run trips when (count of participating failures) > max_failures.
+    """
     if outcome.rule_errors:
         return 2
     for fk in outcome.fk_issues:
@@ -219,11 +218,11 @@ def decide_exit(
             return 2
     if policy is None:
         return 0
-    failures = [r for r in outcome.non_exempt_failures]
-    severity_failures = [
-        r for r in failures if severity_at_least(r.severity, policy.fail_on)
+    participating = [
+        r for r in outcome.non_exempt_failures
+        if severity_at_least(r.severity, policy.fail_on)
     ]
-    if len(failures) > policy.max_failures or severity_failures:
+    if len(participating) > policy.max_failures:
         return 1
     if baseline is not None:
         fk_new = [

@@ -87,3 +87,17 @@ def distinct_values(con, qt: str, qc: str) -> list:
                  + " WHERE " + qc + " IS NOT NULL ORDER BY " + qc + " LIMIT 21")
         ).fetchall()
     return [r[0] for r in rows][:20]
+
+
+def low_cardinality_values(con, qt: str, columns: list[tuple[str, str]]) -> dict:
+    """Fetch distinct values for low-cardinality columns, one query per column.
+
+    These extras only apply to columns whose distinct count is already known
+    to be small; the dominant cost (stats) is the single aggregate. Kept
+    explicit rather than folded into one statement so the SQL stays readable
+    and backend-portable across DuckDB/PostgreSQL/MySQL.
+    """
+    result = {}
+    for name, qc in columns:
+        result[name] = distinct_values(con, qt, qc)
+    return result

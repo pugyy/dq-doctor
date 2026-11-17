@@ -34,6 +34,12 @@ def is_temporal(dtype: str) -> bool:
     return d.startswith("timestamp") or d == "date"
 
 
+def _is_text(dtype: str) -> bool:
+    """Text-ish columns are the only ones that can carry PII evidence."""
+    d = dtype.strip().lower()
+    return any(d.startswith(p) for p in _TEXTISH)
+
+
 _SEMANTIC_PATTERNS: list[tuple[str, list[str]]] = [
     ("identifier", ["id"]),
     ("measure", ["price", "amount", "cost", "total", "fee", "salary", "revenue",
@@ -104,16 +110,27 @@ def profile_table(
         row_count=full_rows if full_rows is not None else row_count,
     )
 
+    # Distinct value lists are only fetched where they carry information:
+    # categorical columns (enumeration drives accepted_values suggestions)
+    # and text columns (PII evidence). Numeric/id columns keep just the
+    # counts from the aggregate, so the query count stays flat with width.
+    enum_cols = []
+    for name, qc, _mm in quoted:
+        col_meta = next(c for c in columns if c["name"] == name)
+        sem = infer_semantic_type(name, col_meta["dtype"])
+        if 0 < stats[name]["distinct"] <= 20 and (sem == "category" or _is_text(col_meta["dtype"])):
+            enum_cols.append((name, qc))
+    low_card = {} if sampled else aggregates.low_cardinality_values(con, qt, enum_cols)
+
     profiles: list[ColumnProfile] = []
     pii_evidence: dict[str, object] = {}
     for col in columns:
         name = col["name"]
         s = stats[name]
-        qc = con.quote_identifier(name)
-        distinct_values: list = []
-        if not sampled and 0 < s["distinct"] <= 20:
-            distinct_values = aggregates.distinct_values(con, qt, qc)
-        sample_vals = distinct_values[:10] or samples.sample_values(con, scan, qc)
+        distinct_values = low_card.get(name, [])
+        sample_vals = distinct_values[:10]
+        if not sample_vals and _is_text(col["dtype"]):
+            sample_vals = samples.sample_values(con, scan, con.quote_identifier(name))
         evidence = detect_pii(name, sample_vals)
         profiles.append(
             ColumnProfile(
