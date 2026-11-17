@@ -34,6 +34,7 @@
   .score { font-size: 28px; font-weight: 700; }
   .note { color: #8a8f98; font-size: 12px; margin-top: 4px; }
   .pii { background: #fff8e1; border: 1px solid #f2e2a0; }
+  .src { color: #8a8f98; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -82,7 +83,7 @@
     {% endif %}
 
     <table>
-      <tr><th>Rule</th><th>Status</th><th>Severity</th><th>Detail</th></tr>
+      <tr><th>Rule</th><th>Status</th><th>Severity</th><th>Detail</th><th>Source</th></tr>
       {% for r in table.rule_results %}
       <tr>
         <td><code>{{ r.rule_id }}</code></td>
@@ -90,9 +91,34 @@
           {{ r.status.value }}{% if r.exempted %} (baseline-exempted){% endif %}</td>
         <td>{{ r.severity }}</td>
         <td>{{ r.message }}</td>
+        <td class="src">{{ r.source }}</td>
       </tr>
       {% endfor %}
     </table>
+
+    {% if table.profile.columns %}
+    <h2>Column profile</h2>
+    <table>
+      <tr>
+        <th>Column</th><th>Type</th><th>Nulls</th><th>Distinct</th>
+        <th>Min</th><th>Max</th><th>Semantic</th><th>PII</th>
+      </tr>
+      {% for c in table.profile.columns %}
+      <tr>
+        <td><code>{{ c.name }}</code></td>
+        <td>{{ c.dtype }}</td>
+        <td>{{ "%d (%.1f%%)"|format(c.null_count, c.null_rate * 100) }}</td>
+        <td>{{ c.distinct_count }}</td>
+        <td>{{ redact(c.min_value) if c.min_value is not none else "-" }}</td>
+        <td>{{ redact(c.max_value) if c.max_value is not none else "-" }}</td>
+        <td>{{ c.inferred_semantic_type }}</td>
+        <td>{% if c.pii_type %}<span class="fail">{{ c.pii_type }}</span>{% else %}-{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <div class="note">Text min/max values are fingerprinted; numeric and
+    temporal ranges are shown as-is. Sample values are never serialized.</div>
+    {% endif %}
   </div>
   {% endfor %}
 

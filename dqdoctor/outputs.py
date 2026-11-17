@@ -50,14 +50,21 @@ def write_junit(outcome: CheckOutcome, path: Path) -> Path:
             and not r.exempted
         )
         errors = sum(1 for r in table.rule_results if r.status is RuleStatus.ERROR)
+        # A testcase is "skipped" when it produced a <skipped> element: SKIP
+        # results, baseline-exempted failures and suggestions. The count must
+        # match the elements, or CI dashboards mis-report.
+        skipped = sum(
+            1 for r in table.rule_results
+            if r.status is RuleStatus.SKIP
+            or r.status is RuleStatus.SUGGESTION
+            or (r.status is RuleStatus.FAIL and r.exempted)
+        )
         suite = ET.SubElement(root, "testsuite", {
             "name": f"dq-doctor.{table.table_name}",
             "tests": str(len(table.rule_results)),
             "failures": str(failures),
             "errors": str(errors),
-            "skipped": str(
-                sum(1 for r in table.rule_results if r.status is RuleStatus.SKIP)
-            ),
+            "skipped": str(skipped),
         })
         for r in table.rule_results:
             case = ET.SubElement(suite, "testcase", {

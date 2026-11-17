@@ -5,6 +5,67 @@
 First stable release. Breaking changes; see
 [Migration guide](docs/migration-1.0.md).
 
+### Audit fixes (post-review pass)
+
+An external review of the first 1.0 build found cases where tests passed but
+behaviour was wrong. All are fixed and pinned by regression tests
+(`tests/test_audit_*.py`):
+
+- **Sampling could gate and mislead.** A sampled profile reported
+  `non-null = full_rows` against `distinct = sample_size`, producing 950
+  phantom duplicates on a 1000-row unique column, and under-reported NULLs
+  by the sampling ratio. Now: `check --rules` always profiles the full
+  table (`--sample-rows` is explore-mode only), every `ColumnProfile`
+  records `stats_row_count` (its own denominator), and
+  `SamplingInfo.random` is explicit.
+- **PostgreSQL crashed on the default URL.** `queries.py` gated the MySQL
+  `DATABASE()` call on "schema is unset" instead of on the backend, so a
+  PostgreSQL URL without `?schema=` failed at the first metadata query.
+- **Airflow operator never ran its body.** `__getattr__` cannot override
+  `BaseOperator.execute` (the MRO wins before `__getattr__`). `execute` is
+  now defined explicitly on the class.
+- **Contracts stored a redacted datasource.** `rules-init` wrote
+  `ds.describe()` (password `***`), so `check --rules` could not reconnect.
+  New `persistent_ref()` returns the original spec for storage; `describe()`
+  stays display-only.
+- **FK orphans did not gate without a baseline.** The referential check was
+  inside `if baseline is not None`. It now gates unconditionally; a baseline
+  only exempts recorded pairs.
+- **Execution errors exited 0 without `--ci`.** `decide_exit` is now called
+  regardless of `--ci`; `--ci` only controls whether gate failures exit 1.
+- **Printed failure count ignored `--fail-on`.** A run with only low
+  failures printed "N non-exempt failure(s)" while exiting 0.
+- **Redaction destroyed statistics.** `Decimal`/`date`/`datetime` min/max
+  were fingerprinted, hiding amount and time ranges. Only `str`/`bytes` are
+  fingerprinted now.
+- **SQL policy was too weak and too eager.** Data-modifying CTEs
+  (`WITH d AS (DELETE ... RETURNING *) SELECT`), `read_text`/`read_csv_auto`
+  /`read_parquet` and multi-statement text all passed. Now rejected;
+  keywords inside string literals and comments are no longer false
+  positives.
+- **Identifiers rejected real names.** CJK (`订单`), hyphenated and
+  digit-leading identifiers failed validation. Now accepted and quoted with
+  escaped quote characters.
+- **Rule ids were not table-scoped outside `rules-init`.** Hand-written or
+  migrated multi-table contracts were rejected as duplicate ids. Scoping now
+  happens in `validate_spec`.
+- **`init` wrote an unusable `default`.** `Registry.default` was never
+  read, so `check --config` failed with "Empty datasource spec".
+- **`demo` unlinked before writing.** It now renames the previous database to
+  `.bak` instead of deleting it.
+- **`accepted_values` stringified enum values**, breaking integer enums on
+  PostgreSQL.
+- **JUnit `skipped` count** omitted exempted/suggestion elements.
+- **HTML report lost the column profile** (and rule source).
+- **`llm/client.py` imported a deleted class** and embedded sample values in
+  the prompt; rewritten to metadata-only suggestions.
+- **Directory sources with duplicate stems** (`users.csv` + `users.parquet`)
+  failed on duplicate view names.
+- **Heuristic FK** ignored `parent_id -> parents.id` and treated empty
+  target columns as keys.
+- Coverage gate added (`--cov-fail-under=75`); suite is now 134 tests at
+  ~81% coverage.
+
 ### New: contract-based checking
 
 - `rules-init` generates a versioned, editable contract (YAML/JSON) where

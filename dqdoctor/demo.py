@@ -16,7 +16,7 @@ def create_demo_db(db_path: str | Path | None = None) -> Path:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     if db_path.exists():
-        db_path.unlink()
+        db_path.replace(db_path.with_name(db_path.name + ".bak"))
 
     seed_sql = SEED_SQL_PATH.read_text(encoding="utf-8")
 
@@ -34,7 +34,7 @@ def create_dirty_db(db_path: str | Path | None = None) -> Path:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     if db_path.exists():
-        db_path.unlink()
+        db_path.replace(db_path.with_name(db_path.name + ".bak"))
 
     seed_sql = DIRTY_SEED_PATH.read_text(encoding="utf-8")
 

@@ -96,7 +96,7 @@ def load_contract(path: Path) -> Contract:
         specs = []
         for i, raw in enumerate(raw_rules):
             try:
-                validated = R.validate_spec(raw, i)
+                validated = R.validate_spec(raw, i, table=str(table))
             except ValueError as exc:
                 raise ContractError(f"{path}: tables.{table}: {exc}") from exc
             if validated["id"] in seen_ids:
@@ -345,7 +345,14 @@ def _migrate_config_file(data: dict, path: Path) -> Contract:
                     enabled=False,
                 )
             )
-        tables[str(table)] = TableRules(rules=specs)
+        # Ids are contract-wide unique: scope every migrated rule to its table
+        # so a multi-table config migrates into a loadable contract.
+        tables[str(table)] = TableRules(
+            rules=[
+                r.model_copy(update={"id": R.scope_rule_id(r.id, str(table))})
+                for r in specs
+            ]
+        )
     return Contract(
         version=1,
         datasource=data.get("db"),

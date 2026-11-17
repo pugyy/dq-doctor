@@ -56,6 +56,9 @@ class SamplingInfo(BaseModel):
     method: Literal["full", "sample"] = "full"
     sample_size: int = 0
     row_count: int = 0
+    # The slice is the first-N rows (LIMIT), not a random draw - recorded so
+    # consumers never assume statistical randomness.
+    random: bool = False
 
     @property
     def coverage(self) -> float:
@@ -71,6 +74,10 @@ class ColumnProfile(BaseModel):
     null_rate: float
     distinct_count: int
     distinct_rate: float
+    # Rows the counters above were computed over. Equals TableProfile.row_count
+    # for full scans; equals the sample size when sampling was requested. Kept
+    # explicit so no rule can mix a sampled counter with a full row count.
+    stats_row_count: int = 0
     min_value: Any = None
     max_value: Any = None
     # Raw samples live in memory only; reports/JSON redact them (see redact.py).

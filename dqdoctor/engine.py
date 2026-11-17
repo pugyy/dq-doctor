@@ -116,9 +116,14 @@ class CheckEngine:
         sample_rows: int | None,
         fk_issues: list[FKIssue],
     ) -> TableCheck:
+        # Sampling is a *profiling* convenience and never gates a batch.
+        # Contract mode therefore always profiles the full table; explore
+        # mode (where nothing is verified) may sample.
+        effective_sample = None if contract is not None else sample_rows
         try:
-            profile = profile_table(con, self.datasource.describe(), table,
-                                    sample_rows=sample_rows)
+            profile = profile_table(
+                con, self.datasource.describe(), table, sample_rows=effective_sample
+            )
         except Exception as exc:  # noqa: BLE001 - partial-failure contract
             return TableCheck(
                 table_name=table,
@@ -205,10 +210,15 @@ def decide_exit(
     """0 = success/within policy, 1 = quality gate tripped, 2 = errors.
 
     Gate semantics (documented in README):
+    - Execution errors always exit 2, with or without ``--ci``: a run that
+      could not execute its rules must never report success to a caller.
     - ``--fail-on`` selects which failures participate at all; failures
       below the threshold are reported but do not gate.
     - ``--max-failures`` tolerates up to N *participating* failures.
-    So a run trips when (count of participating failures) > max_failures.
+    - Referential integrity is checked on every run; a baseline only exempts
+      specific *known* relationships, it never turns the check off.
+    So a run trips when (count of participating failures) > max_failures, or
+    when any non-exempt orphan relationship exists.
     """
     if outcome.rule_errors:
         return 2
@@ -223,14 +233,27 @@ def decide_exit(
     ]
     if len(participating) > policy.max_failures:
         return 1
-    if baseline is not None:
-        fk_new = [
-            fk for fk in outcome.fk_issues
-            if fk.orphan_rows > 0 and not baseline_mod.fk_is_exempt(fk, baseline)
-        ]
-        if fk_new:
-            return 1
+    # Referential integrity gates regardless of whether a baseline is
+    # active; the baseline only whitelists specific known pairs. (0.7 fixed
+    # this and an earlier 1.0 draft regressed it.)
+    unexempt_orphans = [
+        fk for fk in outcome.fk_issues
+        if fk.orphan_rows > 0
+        and not (baseline is not None and baseline_mod.fk_is_exempt(fk, baseline))
+    ]
+    if unexempt_orphans:
+        return 1
     return 0
+
+
+def participating_failures(outcome: CheckOutcome, policy: GatePolicy | None) -> list:
+    """Failures that the policy actually counts (used for reporting too)."""
+    if policy is None:
+        return list(outcome.non_exempt_failures)
+    return [
+        r for r in outcome.non_exempt_failures
+        if severity_at_least(r.severity, policy.fail_on)
+    ]
 
 
 def _version() -> str:

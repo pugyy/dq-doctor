@@ -9,6 +9,8 @@ security review - they are replaced with shape descriptors.
 from __future__ import annotations
 
 import hashlib
+from datetime import date, datetime, time
+from decimal import Decimal
 from typing import Any
 
 
@@ -29,14 +31,19 @@ def redact_samples(values: list[Any]) -> list[str]:
 
 
 def redact_scalar(value: Any, include_samples: bool = False) -> Any:
-    """Redact a min/max-style scalar if it could carry content.
+    """Redact a min/max-style scalar if it could carry free text content.
 
-    Numbers, booleans and dates are safe as-is; strings and blobs are
-    replaced by fingerprints unless the operator explicitly opted in.
+    Only ``str``/``bytes`` are content-bearing and therefore fingerprinted.
+    Numbers - including ``Decimal`` - and temporal values are *statistics*,
+    not content: a report that says ``<str:1f2e3d>`` instead of
+    ``[0.00, 500.00]`` is useless, and a date range leaks nothing that a
+    min/max aggregate does not already leak. 1.0 over-redacted these.
     """
-    if include_samples or value is None or isinstance(value, bool | int | float):
+    if include_samples or value is None:
         return value
-    if isinstance(value, str):
+    if isinstance(value, bool | int | float | Decimal | date | datetime | time):
+        return value
+    if isinstance(value, str | bytes | bytearray):
         return redact_value(value)
     return redact_value(value)
 

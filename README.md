@@ -25,7 +25,8 @@ dirty_orders  score 88/100  pass 12  fail 1
 ```
 
 Exit `0` when clean or within policy, `1` when the gate trips, `2` on
-input/config/execution errors.
+input/config/execution errors - errors exit `2` whether or not `--ci` is
+given.
 
 ---
 
@@ -108,7 +109,10 @@ dqdoctor check --db prod --all-tables --rules contract.yml \
   reported, not gated).
 - `--max-failures` tolerates up to N participating failures.
 - Multi-table runs aggregate first; each FK relationship is counted once.
+- Referential integrity gates on every run; a baseline exempts only the
+  specific relationships it recorded.
 - Partial runs still emit results; the exit code reports the error.
+- Execution errors exit `2` whether or not `--ci` is given.
 
 Known failures (onboarding legacy data):
 
@@ -186,8 +190,17 @@ Profiling is batched: one aggregate per table plus a few extras.
 
 | Table | Queries (1.0) | Queries (0.7) |
 |---|---|---|
-| 40 columns / 200k rows | **2** | ~160 |
+| 40 integer columns / 200k rows | **2** | ~160 |
 | 4 columns / 1M rows | **3** | ~20 |
+
+Text columns cost one extra `DISTINCT ... LIMIT` each because PII evidence
+needs sample values; integer columns cost none. FK metadata is discovered
+once per run and each relationship is checked once.
+
+`--sample-rows` profiles a deterministic slice and is **explore-mode only**:
+`check --rules` always profiles the full table, so a sample can never gate a
+batch. Each column records `stats_row_count` (the denominator its counters
+used), so sampled and full-table numbers cannot be mixed.
 
 FK metadata is discovered once per run and each relationship is checked
 once. `--sample-rows` profiles a deterministic slice (recorded in the

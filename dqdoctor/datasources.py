@@ -45,15 +45,33 @@ class IdentifierError(DatasourceError):
 
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
+# Anything a database can legally hold in an identifier once quoted: letters
+# (including CJK), digits, underscore, dollar, space, hyphen, dot. Control
+# characters and quotes are rejected; quotes are escaped by the caller.
+_IDENT_ANY_RE = re.compile(r"^[^\x00-\x1f\x7f\"]+$")
 
 
 def validate_identifier(name: str, what: str = "identifier") -> str:
-    """Allowlist validation for names spliced into SQL as quoted identifiers."""
-    if not name or not _IDENT_RE.match(name):
+    """Validate a name that will be spliced into SQL as a quoted identifier.
+
+    Accepts any non-empty name without control characters or double quotes
+    (CJK column names, hyphens, spaces and digits-first names are legal
+    once quoted - 0.7 supported them). Callers must pass the result through
+    ``quote_identifier``, which escapes quotes for the backend.
+    """
+    if not name or not name.strip():
+        raise IdentifierError(f"Empty {what}.")
+    if not _IDENT_ANY_RE.match(name):
         raise IdentifierError(
-            f"Invalid {what} {name!r}: only [A-Za-z_][A-Za-z0-9_$]* is supported."
+            f"Invalid {what} {name!r}: control characters and double quotes "
+            "are not allowed."
         )
     return name
+
+
+def is_simple_identifier(name: str) -> bool:
+    """True when the name needs no quoting on any supported backend."""
+    return bool(_IDENT_RE.match(name))
 
 
 # ---------------------------------------------------------------------------
@@ -204,10 +222,16 @@ class Connection:
     # -- Identifiers -------------------------------------------------------
 
     def quote_identifier(self, name: str, what: str = "identifier") -> str:
+        """Quote a name for this backend, escaping the quote character.
+
+        ``validate_identifier`` rejects control characters and double quotes;
+        escaping here is defence in depth and makes CJK/hyphen/space names
+        usable (0.7 supported them, an earlier 1.0 draft did not).
+        """
         validate_identifier(name, what)
         if self.backend == "mysql":
-            return "`" + name + "`"
-        return '"' + name + '"'
+            return "`" + name.replace("`", "``") + "`"
+        return '"' + name.replace('"', '""') + '"'
 
     def quote_qualified(self, table: str, schema: str | None = None) -> str:
         parts = []
@@ -294,7 +318,16 @@ class DataSource:
         return self.spec.kind
 
     def describe(self) -> str:
+        """Redacted form, for display only (never persisted, never reconnected)."""
         return self.spec.display
+
+    def persistent_ref(self) -> str:
+        """Original datasource string, for storing in config/contracts.
+
+        Guarantees a later ``check --rules`` can reconnect. Never printed:
+        use ``describe()`` for anything user-facing.
+        """
+        return self.spec.original
 
     def open(self, read_only: bool = True) -> Connection:
         if self.spec.kind == "duckdb":
@@ -341,9 +374,17 @@ class DataSource:
 
     def tables(self) -> list[str]:
         if self.spec.kind == "files":
-            from dqdoctor.fileviews import view_name_for
+            from dqdoctor.fileviews import unique_view_name
 
-            return [view_name_for(f) for f in self.spec.files or []]
+            # Same collision resolution as register_file_views, so listed
+            # names match the views that actually exist.
+            names: list[str] = []
+            taken: set[str] = set()
+            for f in self.spec.files or []:
+                name = unique_view_name(f, taken)
+                taken.add(name)
+                names.append(name)
+            return names
         from dqdoctor import queries
 
         con = self.open(read_only=True)
@@ -374,7 +415,19 @@ def resolve(
     config_path: Path | None = None,
     base_dir: Path | None = None,
 ) -> DataSource:
-    """Resolve a CLI/config datasource string (alias, URL, or path)."""
+    """Resolve a CLI/config datasource string (alias, URL, path, or default).
+
+    An empty ``spec`` falls back to the registry's ``default`` alias, which
+    is what makes `dqdoctor init` followed by `check --config` work.
+    """
     registry = load_registry(config_path if config_path else Path(".dqdoctor.yml"))
+    if not spec and registry.default:
+        spec = registry.default
     resolved = registry.datasources.get(spec, spec)
+    if not resolved:
+        available = ", ".join(sorted(registry.datasources)) or "none"
+        raise DatasourceError(
+            "Empty datasource spec: pass --db, or set 'default:' in the config "
+            f"(registered aliases: {available})."
+        )
     return DataSource(parse_spec(resolved, base_dir=base_dir))

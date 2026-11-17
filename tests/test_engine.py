@@ -11,10 +11,21 @@ from dqdoctor.engine import CheckEngine, decide_exit
 from dqdoctor.models import GatePolicy, RuleSpec, RuleStatus
 
 
-def _engine(path, clock=None):
+def _engine(path, clock=None, heuristic_fk=False):
+    """Engine with heuristic FK off by default.
+
+    Referential integrity now gates unconditionally (correctly), and the
+    `dirty_batch` fixture intentionally contains an orphan. Rule-level exit
+    code tests disable heuristics so they measure what they claim to; FK
+    gating has its own test.
+    """
     from tests.conftest import fixed_clock
 
-    return CheckEngine(DataSource(parse_spec(str(path))), clock=clock or fixed_clock)
+    return CheckEngine(
+        DataSource(parse_spec(str(path))),
+        clock=clock or fixed_clock,
+        include_heuristic_fk=heuristic_fk,
+    )
 
 
 def _contract(table, rules):
@@ -282,8 +293,9 @@ def test_migrate_legacy_config_sql_rules(tmp_root):
     )
     contract = migrate_legacy(legacy)
     rules = {r.id: r for r in contract.tables["orders"].rules}
-    assert rules["freshness:created_at"].params["max_age_hours"] == 48
-    assert rules["sql:positive"].params["expect"] == {"mode": "eq", "value": 0}
+    # Migrated ids carry the table scope, like rules-init / validate_spec.
+    assert rules["orders/freshness:created_at"].params["max_age_hours"] == 48
+    assert rules["orders/sql:positive"].params["expect"] == {"mode": "eq", "value": 0}
     assert contract.datasource == "demo.duckdb"
 
 

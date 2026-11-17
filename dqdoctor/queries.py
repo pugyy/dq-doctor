@@ -10,7 +10,12 @@ from __future__ import annotations
 
 
 def list_tables(con) -> list[str]:
-    """List user tables for the connection's backend and scope."""
+    """List user tables for the connection's backend and scope.
+
+    ``DATABASE()`` is MySQL-only; PostgreSQL must use the search_path schema
+    (default ``public``). Branching on ``backend`` rather than on "schema is
+    set" is what keeps the default PostgreSQL URL working.
+    """
     if con.backend == "duckdb":
         rows = con._raw.execute(
             "SELECT table_name FROM information_schema.tables "
@@ -21,7 +26,7 @@ def list_tables(con) -> list[str]:
     from sqlalchemy import text
 
     con.query_count += 1
-    if con.mysql_schema is None:
+    if con.backend == "mysql" and con.mysql_schema is None:
         rows = con._raw.execute(
             text(
                 "SELECT table_name FROM information_schema.tables "
@@ -62,7 +67,7 @@ def table_columns(con, table: str) -> list[dict]:
     else:
         from sqlalchemy import text
 
-        if con.mysql_schema is None:
+        if con.backend == "mysql" and con.mysql_schema is None:
             result = con._raw.execute(
                 text(
                     "SELECT column_name, data_type FROM information_schema.columns "

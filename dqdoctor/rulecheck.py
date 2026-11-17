@@ -75,7 +75,7 @@ def _require_col(profile: TableProfile, name: str):
 def check_not_null(con, qt, profile, spec, clock, timeout) -> RuleResult:
     col = _require_col(profile, spec.column)
     failed = col.null_count
-    total = profile.row_count
+    total = col.stats_row_count
     return RuleResult(
         rule_id=spec.id, rule_type="not_null", column=spec.column,
         status=RuleStatus.PASS if failed == 0 else RuleStatus.FAIL,
@@ -92,8 +92,9 @@ def check_not_null(con, qt, profile, spec, clock, timeout) -> RuleResult:
 def check_unique(con, qt, profile, spec, clock, timeout) -> RuleResult:
     col = _require_col(profile, spec.column)
     # 1.0: uniqueness is judged over NON-NULL values only. NULL presence is
-    # the not_null rule's business (0.7 counted NULLs as duplicates).
-    nonnull = profile.row_count - col.null_count
+    # not_null's business (0.7 counted NULLs as duplicates). Counters come
+    # from the same scan (`stats_row_count`), never from a full row count.
+    nonnull = col.stats_row_count - col.null_count
     failed = max(nonnull - col.distinct_count, 0) if nonnull else 0
     return RuleResult(
         rule_id=spec.id, rule_type="unique", column=spec.column,
@@ -114,13 +115,14 @@ def check_accepted_values(con, qt, profile, spec, clock, timeout) -> RuleResult:
     allowed_raw = spec.params.get("values") or []
     if not allowed_raw:
         return _skip(spec, "no accepted values defined")
-    allowed = [str(v) for v in allowed_raw]
+    # Keep the contract's native types: stringifying an integer enum makes
+    # PostgreSQL reject `integer = character varying`.
+    allowed = list(allowed_raw)
     null_policy = str(spec.params.get("null_policy", "ignore"))
-    nonnull = profile.row_count - col.null_count
+    nonnull = col.stats_row_count - col.null_count
 
     if col.distinct_count <= 20 and col.distinct_values and null_policy == "ignore":
-        seen = {str(v) for v in col.distinct_values}
-        if not (seen - set(allowed)):
+        if not (_normalized(col.distinct_values) - _normalized(allowed)):
             return RuleResult(
                 rule_id=spec.id, rule_type="accepted_values", column=spec.column,
                 status=RuleStatus.PASS, severity=spec.severity, failed_count=0,
@@ -132,7 +134,13 @@ def check_accepted_values(con, qt, profile, spec, clock, timeout) -> RuleResult:
     return _accepted_values_query(con, qt, profile, spec, allowed, null_policy)
 
 
-def _accepted_values_query(con, qt, profile, spec, allowed: list[str], null_policy: str):
+def _normalized(values) -> set[str]:
+    """Comparison form: values compare by text so 1 and "1" match while the
+    query itself still binds the original types."""
+    return {str(v) for v in values}
+
+
+def _accepted_values_query(con, qt, profile, spec, allowed: list, null_policy: str):
     """Count values outside the accepted set (bound NOT IN; NULLs per policy)."""
     qc = con.quote_identifier(spec.column)
     con.query_count += 1
@@ -156,11 +164,11 @@ def _accepted_values_query(con, qt, profile, spec, allowed: list[str], null_poli
             named,
         ).fetchone()
     col = profile.column(spec.column)
-    nonnull = profile.row_count - col.null_count
+    nonnull = col.stats_row_count - col.null_count
     failed = row[0]
     if null_policy == "fail":
         failed += col.null_count
-        total = profile.row_count
+        total = col.stats_row_count
         message_ok = f"All {total} values in '{spec.column}' are in the accepted set."
         message_bad = (
             f"Found {failed}/{total} values outside the accepted set or NULL in "
@@ -190,7 +198,7 @@ def check_range(con, qt, profile, spec, clock, timeout) -> RuleResult:
         return _skip(spec, "range rule needs min and/or max")
     lo = R.as_number(spec.params["min"]) if spec.params.get("min") is not None else None
     hi = R.as_number(spec.params["max"]) if spec.params.get("max") is not None else None
-    nonnull = profile.row_count - col.null_count
+    nonnull = col.stats_row_count - col.null_count
     if nonnull == 0:
         return RuleResult(
             rule_id=spec.id, rule_type="range", column=spec.column,
@@ -328,7 +336,7 @@ def check_regex(con, qt, profile, spec, clock, timeout) -> RuleResult:
     if not pattern:
         return _skip(spec, "regex rule needs params.pattern")
     qc = con.quote_identifier(spec.column)
-    nonnull = profile.row_count - col.null_count
+    nonnull = col.stats_row_count - col.null_count
     con.query_count += 1
     if con.backend == "duckdb":
         row = con._raw.execute(

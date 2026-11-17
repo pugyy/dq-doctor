@@ -32,12 +32,39 @@ _NAME_OK = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def view_name_for(f: Path) -> str:
-    name = re.sub(r"[^A-Za-z0-9_]", "_", f.stem) or "dataset"
+    """View name for a file.
+
+    ``users.csv`` and ``users.parquet`` both sanitize to ``users``; the
+    extension is appended when the stem alone would be ambiguous, so a
+    directory source with the same dataset in two formats keeps working
+    (``users_csv`` / ``users_parquet``) instead of failing on a duplicate
+    CREATE VIEW.
+    """
+    stem = re.sub(r"[^A-Za-z0-9_]", "_", f.stem) or "dataset"
+    suffix = re.sub(r"[^A-Za-z0-9_]", "", f.suffix.lower().lstrip("."))
+    name = stem
+    if suffix and suffix not in ("csv", "parquet", "json", "jsonl"):
+        name = stem + "_" + suffix
     if not _NAME_OK.match(name):
         name = "t_" + name.lstrip("0123456789_")
     if not _NAME_OK.match(name):
         name = "dataset"
     return name
+
+
+def unique_view_name(f: Path, taken: set[str]) -> str:
+    """Collision-free view name for a file given the names already used."""
+    base = view_name_for(f)
+    if base not in taken:
+        return base
+    suffix = re.sub(r"[^A-Za-z0-9_]", "", f.suffix.lower().lstrip(".")) or "file"
+    candidate = base + "_" + suffix
+    if candidate not in taken:
+        return candidate
+    index = 2
+    while f"{candidate}{index}" in taken:
+        index += 1
+    return f"{candidate}{index}"
 
 
 def _path_literal(f: Path) -> str:
@@ -46,10 +73,12 @@ def _path_literal(f: Path) -> str:
 
 
 def register_file_views(con, files: list[Path]) -> list[str]:
-    """Create one view per file; returns the view names."""
+    """Create one view per file; returns the view names actually used."""
     names: list[str] = []
+    taken: set[str] = set()
     for f in files:
-        name = view_name_for(f)
+        name = unique_view_name(f, taken)
+        taken.add(name)
         reader = READERS[f.suffix.lower()]
         escaped = _path_literal(f)
         con.execute(

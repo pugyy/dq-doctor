@@ -102,10 +102,16 @@ def profile_table(
         quoted.append((col["name"], qc, want_mm))
 
     row_count, stats = aggregates.aggregate(con, scan, quoted)
+    # `row_count` is the count over the SAME scan the per-column counters came
+    # from (sample when sampling, full otherwise). TableProfile.row_count below
+    # may be larger (full-table count) and is only for display/row_count rules;
+    # rules must never mix the two, hence ColumnProfile.stats_row_count.
+    stats_row_count = row_count
     sampling = SamplingInfo(
         method="sample" if sampled else "full",
         sample_size=scan_rows if scan_rows is not None else row_count,
         row_count=full_rows if full_rows is not None else row_count,
+        random=False,
     )
 
     # Distinct value lists are only fetched where they carry information:
@@ -134,12 +140,15 @@ def profile_table(
             ColumnProfile(
                 name=name,
                 dtype=col["dtype"],
-                null_count=row_count - s["nonnull"],
-                null_rate=round((row_count - s["nonnull"]) / row_count, 4)
-                if row_count
+                null_count=stats_row_count - s["nonnull"],
+                null_rate=round((stats_row_count - s["nonnull"]) / stats_row_count, 4)
+                if stats_row_count
                 else 0.0,
                 distinct_count=s["distinct"],
-                distinct_rate=round(s["distinct"] / row_count, 4) if row_count else 0.0,
+                distinct_rate=round(s["distinct"] / stats_row_count, 4)
+                if stats_row_count
+                else 0.0,
+                stats_row_count=stats_row_count,
                 min_value=s.get("min"),
                 max_value=s.get("max"),
                 sample_values=sample_vals,

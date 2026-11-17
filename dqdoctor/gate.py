@@ -150,7 +150,9 @@ class DQDoctorOperator(_BASE_OPERATOR):  # type: ignore[misc, valid-type]
     def _task_body(self, context=None) -> dict:
         return {"summary": run_gate(**self.task_settings())}
 
-    def __getattr__(self, name):
-        if name == self._protocol_name:
-            return self._task_body
-        raise AttributeError(name)
+    # Airflow's task protocol looks up a callable named "execute". It must be
+    # defined explicitly: BaseOperator defines its own ``execute`` and the
+    # class MRO resolves before __getattr__, so exposing the body that way is
+    # silently shadowed (an earlier version did exactly that).
+    execute = _task_body
+

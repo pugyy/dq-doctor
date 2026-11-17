@@ -35,8 +35,26 @@ def default_rule_id(rule_type: str, column: str) -> str:
     return f"{rule_type}:{column}"
 
 
-def validate_spec(spec: dict, index: int) -> dict:
-    """Validate one raw rule mapping; raise ValueError with a clear message."""
+def scope_rule_id(rule_id: str, table: str) -> str:
+    """Prefix a rule id with its table, once (``orders/not_null:user_id``).
+
+    Rule ids are unique across a contract that holds several tables, so this
+    is applied at validation time - hand-written and migrated contracts get
+    the same guarantee as ``rules-init``.
+    """
+    if not table or "/" in rule_id:
+        return rule_id
+    return f"{table}/{rule_id}"
+
+
+def validate_spec(spec: dict, index: int, table: str = "") -> dict:
+    """Validate one raw rule mapping; raise ValueError with a clear message.
+
+    ``table`` prefixes the id (``orders/not_null:user_id``) so contracts that
+    hold several tables cannot collide. Applied at validation time, so
+    hand-written and migrated contracts get the same guarantee as
+    ``rules-init``.
+    """
     rule_id = str(spec.get("id") or "")
     rule_type = str(spec.get("type") or "")
     column = str(spec.get("column") or "*")
@@ -45,6 +63,8 @@ def validate_spec(spec: dict, index: int) -> dict:
             rule_id = default_rule_id(rule_type, column)
         else:
             raise ValueError(f"Rule #{index}: 'id' is required")
+    if table and "/" not in rule_id:
+        rule_id = f"{table}/{rule_id}"
     if rule_type not in RULE_TYPES:
         raise ValueError(
             f"Rule '{rule_id}': unknown type {rule_type!r}. "

@@ -18,6 +18,7 @@ from rich.table import Table
 from dqdoctor import __version__
 from dqdoctor import baseline as baseline_mod
 from dqdoctor import contract as contract_mod
+from dqdoctor.baseline import fk_is_exempt
 from dqdoctor.contract import ContractError
 from dqdoctor.datasources import (
     DataSource,
@@ -26,7 +27,7 @@ from dqdoctor.datasources import (
 from dqdoctor.datasources import (
     resolve as resolve_datasource,
 )
-from dqdoctor.engine import CheckEngine, decide_exit
+from dqdoctor.engine import CheckEngine, decide_exit, participating_failures
 from dqdoctor.models import CheckOutcome, GatePolicy, RuleStatus
 from dqdoctor.outputs import write_html, write_json, write_junit
 
@@ -353,15 +354,36 @@ def check(
         paths.append(junit_out)
     console.print("[dim]Reports: " + ", ".join(str(p) for p in paths) + "[/dim]")
 
+    # Execution errors always exit 2, with or without --ci: a run that could
+    # not execute must never look successful to a caller. --ci additionally
+    # turns quality-gate failures (FK orphans + rule failures) into exit 1.
+    errors = decide_exit(outcome, None)
+    if errors == EXIT_ERROR:
+        raise typer.Exit(EXIT_ERROR)
     if ci:
         code = decide_exit(outcome, policy, base)
         if code == EXIT_GATE:
-            gate_failures = len(outcome.non_exempt_failures)
+            counted = participating_failures(outcome, policy)
+            orphan_pairs = [
+                fk for fk in outcome.fk_issues
+                if fk.orphan_rows > 0
+                and not (base is not None and fk_is_exempt(fk, base))
+            ]
+            orphan_note = (
+                f", plus {len(orphan_pairs)} orphan relationship(s)"
+                if orphan_pairs else ""
+            )
             console.print(
-                f"[red]CI gate tripped:[/red] {gate_failures} non-exempt failure(s) "
-                f"(max-failures={max_failures}, fail-on={fail_on})."
+                f"[red]CI gate tripped:[/red] {len(counted)} non-exempt failure(s) "
+                f"at or above '{fail_on}' (max-failures={max_failures})"
+                f"{orphan_note}."
             )
         raise typer.Exit(code)
+    if outcome.rule_errors:
+        console.print(
+            f"[magenta]{len(outcome.rule_errors)} rule error(s)[/magenta] - "
+            "re-run with --ci to fail the pipeline on them."
+        )
 
 
 def _multi_or_single(out: Path, outcome: CheckOutcome, writer, suffix: str) -> Path:
@@ -442,7 +464,10 @@ def rules_init(
             table_scoped(s, tc.table_name) for s in suggest_for_table(tc.profile)
         ]
     contract = contract_mod.build_contract(
-        [tc.profile for tc in outcome.tables], specs, datasource=ds.describe()
+        # Persist the ORIGINAL spec so `check --rules` can reconnect; the
+        # redacted form is display-only and would literally be a "***"
+        # password.
+        [tc.profile for tc in outcome.tables], specs, datasource=ds.persistent_ref()
     )
     contract_mod.save_contract(contract, out)
     total = sum(len(v) for v in specs.values())
@@ -450,6 +475,8 @@ def rules_init(
                   f"{len(specs)} table(s))")
     console.print(f"[dim]Edit it, then: dqdoctor check --db {ds.describe()} "
                   f"--all-tables --rules {out} --ci[/dim]")
+    console.print("[dim]The contract stores the full datasource reference; "
+                  "--db is only needed to override it.[/dim]")
 
 
 # ---------------------------------------------------------------------------

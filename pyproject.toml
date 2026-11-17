@@ -103,4 +103,4 @@ select = ["E", "F", "I", "W", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=dqdoctor --cov-report=term-missing"
+addopts = "--cov=dqdoctor --cov-report=term-missing --cov-fail-under=75"
