@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import duckdb
+import yaml
 
 from dqdoctor.datasources import DataSource, parse_spec
 
@@ -104,7 +106,10 @@ def test_rules_init_does_not_write_url_credentials(tmp_root, monkeypatch):
     ])
     assert result.exit_code == 0, result.output
     text = out.read_text(encoding="utf-8")
-    assert str(db) in text  # local file datasource is still recorded
+    # Compare resolved paths: Windows GitHub runners expose the temp directory
+    # through the 8.3 short name (RUNNER~1) while Path.resolve() emits the long
+    # name, so a raw string comparison fails only in CI.
+    assert Path(yaml.safe_load(text)["datasource"]).resolve() == db.resolve()
     assert "***" not in text
 
 
