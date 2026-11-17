@@ -14,7 +14,7 @@ dqdoctor export --rules contract.yml --format markdown --out dict.md
 
 | Exporter | Target | Version |
 |---|---|---|
-| `dbt` | dbt schema YAML | dbt >= 1.8 (`data_tests`) |
+| `dbt` | dbt schema YAML | dbt >= 1.10.5 (`data_tests` + nested `arguments`) |
 | `gx` | Great Expectations suite JSON | GX 1.x suite shape |
 | `soda` | SodaCL checks | SodaCL `valid values` syntax |
 | `deequ` | pydeequ constraint mapping | consumer: pydeequ scripts |

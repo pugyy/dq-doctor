@@ -1,7 +1,7 @@
 # dq-doctor 1.0 limitations
 
 Honest statement of what is verified, what is approximate, and what is not
-covered, as of 1.0.0.
+covered, as of 1.0.7.
 
 ## Verified (executed locally)
 
@@ -38,8 +38,9 @@ covered, as of 1.0.0.
 
 ## Not verified in this environment
 
-- **CI has not run**: the workflow targets all branches now, but the `v1.0`
-  branch has never been pushed.
+- **CI**: GitHub Actions run `44117690988` passed all 8 jobs (Linux/Windows,
+  Python 3.12-3.14, PostgreSQL/MySQL integration, clean-wheel install) on the
+  v1.0.7 release commit.
 - **Live servers used for verification were local**: MySQL 9.5.0 and
   embedded PostgreSQL 16.2 (pgserver) on loopback, selected through the
   same `DQTEST_*` variables CI injects. Missing or unreachable servers

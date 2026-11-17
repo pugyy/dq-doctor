@@ -130,8 +130,7 @@ exported artifacts consumable by the real tools they target.
 
 ## v1.0.6
 
-Sixth audit pass: the "final examiner" was holding the developer's home
-address. Product fixes from 1.0.5 held; two meta-bugs fixed.
+Sixth audit pass. Product fixes from 1.0.5 held; two meta-bugs fixed.
 
 ### Fixed
 

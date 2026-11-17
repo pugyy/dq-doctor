@@ -72,8 +72,10 @@ def restricted_env(tmp_root):
     con.close()
     secret = tmp_root / "secret.parquet"
     con = duckdb.connect()
-    con.execute("COPY (SELECT 'LEAKED' AS s) TO 'secret.parquet' (FORMAT PARQUET)")
+    target = secret.as_posix().replace("'", "''")
+    con.execute(f"COPY (SELECT 'LEAKED' AS s) TO '{target}' (FORMAT PARQUET)")
     con.close()
+    assert secret.exists(), "the fixture must create the file it asks the engine to read"
     return db, secret
 
 
