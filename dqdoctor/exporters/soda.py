@@ -1,45 +1,71 @@
+"""SodaCL export (contract -> checks YAML).
+
+Uses the documented SodaCL parameter block: ``invalid_count(col) = 0``
+with a nested ``valid values: [...]`` list (the 0.7 exporter emitted an
+inline ``{ values: ... }`` map SodaCL does not recognize). SQL rules
+export as ``custom sql`` checks; unmappable types land in comments.
+"""
 from __future__ import annotations
 
 from pathlib import Path
 
-from dqdoctor.models import ProfileResult, RuleSuggestion
+import yaml
+
+from dqdoctor.contract import Contract
 
 
-def export_soda_cl(
-    profile: ProfileResult,
-    rules: list[RuleSuggestion],
-) -> str:
-    lines = [
-        f"checks for {profile.table_name}:",
-    ]
-    for rule in rules:
-        if rule.rule_type == "not_null":
-            lines.append(f"  - missing_count({rule.column}) = 0")
-        elif rule.rule_type == "unique":
-            lines.append(f"  - duplicate_count({rule.column}) = 0")
-        elif rule.rule_type == "accepted_values":
-            values = rule.params.get("values", [])
-            vals_str = ", ".join("'" + str(v).replace("'", "''") + "'" for v in values)
-            lines.append(f"  - invalid_count({rule.column}) = 0: {{ values: [{vals_str}] }}")
-        elif rule.rule_type == "range":
-            min_v = rule.params.get("min")
-            max_v = rule.params.get("max")
-            if min_v is not None:
-                lines.append(f"  - min({rule.column}) >= {min_v}")
-            if max_v is not None:
-                lines.append(f"  - max({rule.column}) <= {max_v}")
-        elif rule.rule_type == "freshness":
-            hours = rule.params.get("max_age_hours", 24)
-            lines.append(f"  - freshness({rule.column}) < {hours}h")
-    return "\n".join(lines) + "\n"
+def _quote(value) -> str:
+    return "[" + ", ".join(
+        "'" + str(v).replace("'", "''") + "'" for v in value
+    ) + "]"
 
 
-def save_soda_cl(
-    profile: ProfileResult,
-    rules: list[RuleSuggestion],
-    output_path: "str | Path",
-) -> Path:
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(export_soda_cl(profile, rules), encoding="utf-8")
-    return output_path
+def export_soda(contract: Contract) -> str:
+    lines: list[str] = []
+    for table, tr in sorted(contract.tables.items()):
+        lines.append(f"checks for {table}:")
+        unmapped: list[str] = []
+        for rule in tr.rules:
+            if not rule.enabled:
+                continue
+            if rule.type == "not_null":
+                lines.append(f"  - missing_count({rule.column}) = 0")
+            elif rule.type == "unique":
+                lines.append(f"  - duplicate_count({rule.column}) = 0")
+            elif rule.type == "accepted_values":
+                lines.append(f"  - invalid_count({rule.column}) = 0:")
+                lines.append(
+                    "      valid values: "
+                    + _quote(rule.params.get("values", []))
+                )
+            elif rule.type == "range":
+                if rule.params.get("min") is not None:
+                    lines.append(f"  - min({rule.column}) >= {rule.params['min']}")
+                if rule.params.get("max") is not None:
+                    lines.append(f"  - max({rule.column}) <= {rule.params['max']}")
+            elif rule.type == "freshness":
+                hours = rule.params.get("max_age_hours", 24)
+                lines.append(f"  - freshness({rule.column}) < {hours}h")
+            elif rule.type == "row_count":
+                parts = []
+                if rule.params.get("min") is not None:
+                    parts.append(f"row_count >= {rule.params['min']}")
+                if rule.params.get("max") is not None:
+                    parts.append(f"row_count <= {rule.params['max']}")
+                for p in parts:
+                    lines.append(f"  - {p}")
+            else:
+                unmapped.append(f"{table}: rule {rule.id} ({rule.type}) not exportable")
+        lines.append("")
+    text = "\n".join(lines)
+    if unmapped:
+        text += "# unmapped rules (no SodaCL equivalent):\n" + \
+            "\n".join("# " + u for u in unmapped) + "\n"
+    return text
+
+
+def save(contract: Contract, out: Path) -> Path:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(export_soda(contract), encoding="utf-8")
+    _ = yaml  # (yaml kept available for future structured SodaCL config export)
+    return out

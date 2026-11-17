@@ -4,7 +4,7 @@ from pathlib import Path
 
 import duckdb
 
-from dqdoctor.connectors.auto import list_tables as _auto_list_tables
+from dqdoctor.datasources import Connection as _Connection
 
 _DATA_DIR = Path(__file__).resolve().parent / "data"
 SEED_SQL_PATH = _DATA_DIR / "seed.sql"
@@ -48,10 +48,15 @@ def create_dirty_db(db_path: "str | Path | None" = None) -> Path:
 
 
 def list_tables(db_path: "str | Path") -> list[str]:
-    from dqdoctor.connectors.auto import get_connection
+    from dqdoctor.queries import list_tables as _list
 
-    con = get_connection(str(db_path), read_only=True)
+    ds_path = Path(db_path)
+    if not ds_path.exists():
+        raise FileNotFoundError(f"DuckDB database not found: {ds_path}")
+    con = _Connection(
+        __import__("duckdb").connect(str(ds_path), read_only=True), "duckdb"
+    )
     try:
-        return _auto_list_tables(con)
+        return _list(con)
     finally:
         con.close()

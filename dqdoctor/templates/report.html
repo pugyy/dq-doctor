@@ -3,227 +3,120 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>dq-doctor Report: {{ report.table_name }}</title>
+<title>dq-doctor {{ outcome.schema_version }} Report</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f7fa; color: #333; padding: 24px; }
-  .container { max-width: 960px; margin: 0 auto; }
-  h1 { font-size: 24px; margin-bottom: 4px; }
-  .subtitle { color: #666; font-size: 14px; margin-bottom: 24px; }
-  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 32px; }
-  .card { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; }
-  .card .label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
-  .card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
-  .card.pass .value { color: #16a34a; }
-  .card.fail .value { color: #dc2626; }
-  .card.info .value { color: #2563eb; }
-  h2 { font-size: 18px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb; }
-  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 32px; font-size: 13px; }
-  thead { background: #1e293b; color: #fff; }
-  th { padding: 10px 12px; text-align: left; font-weight: 600; }
-  td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
-  tr:nth-child(even) td { background: #f8fafc; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-  .badge-pass { background: #dcfce7; color: #166534; }
-  .badge-fail { background: #fee2e2; color: #991b1b; }
-  .badge-suggest { background: #e0f2fe; color: #075985; }
-  .badge-high { background: #fee2e2; color: #991b1b; }
-  .badge-medium { background: #fef9c3; color: #854d0e; }
-  .badge-low { background: #dbeafe; color: #1e40af; }
-  .badge-identifier { background: #e0e7ff; color: #3730a3; }
-  .badge-measure { background: #fce7f3; color: #9d174d; }
-  .badge-category { background: #ccfbf1; color: #115e59; }
-  .badge-timestamp { background: #fef3c7; color: #92400e; }
-  .badge-unknown { background: #f1f5f9; color: #475569; }
-  .score { font-size: 48px; font-weight: 800; }
-  .score-good { color: #16a34a; }
-  .score-warn { color: #d97706; }
-  .score-bad { color: #dc2626; }
-  footer { text-align: center; font-size: 12px; color: #94a3b8; margin-top: 24px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: #f5f7fa; color: #333; padding: 24px; }
+  .container { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  h2 { font-size: 16px; margin: 24px 0 8px; }
+  .meta { color: #667; font-size: 13px; margin-bottom: 20px; }
+  .meta code { background: #eef1f5; padding: 1px 6px; border-radius: 4px; }
+  .card { background: #fff; border: 1px solid #e3e8ef; border-radius: 10px;
+          padding: 16px 20px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: #667; font-weight: 600; padding: 6px 8px;
+       border-bottom: 1px solid #e3e8ef; }
+  td { padding: 6px 8px; border-bottom: 1px solid #f0f3f7; vertical-align: top; }
+  .pass { color: #0a7d32; font-weight: 600; }
+  .fail { color: #c62828; font-weight: 600; }
+  .skip { color: #8a8f98; }
+  .suggestion { color: #0b6bcb; }
+  .error { color: #b71c1c; font-weight: 600; }
+  .exempt { color: #b8860b; }
+  .pill { display: inline-block; border-radius: 999px; padding: 1px 10px;
+          font-size: 12px; font-weight: 600; }
+  .pill.green { background: #e6f4ea; color: #0a7d32; }
+  .pill.red { background: #fdecea; color: #c62828; }
+  .pill.gray { background: #eef1f5; color: #556; }
+  .pill.na { background: #eef1f5; color: #99a; }
+  .score { font-size: 28px; font-weight: 700; }
+  .note { color: #8a8f98; font-size: 12px; margin-top: 4px; }
+  .pii { background: #fff8e1; border: 1px solid #f2e2a0; }
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>dq-doctor Report: {{ report.table_name }}</h1>
-  <p class="subtitle">{{ report.db_path }} &middot; Generated at {{ report.generated_at }}</p>
-
-  <div class="summary">
-    <div class="card {% if report.quality_score >= 80 %}pass{% elif report.quality_score >= 50 %}info{% else %}fail{% endif %}">
-      <div class="label">Quality Score</div>
-      <div class="value">{{ report.quality_score }}/100</div>
-    </div>
-    <div class="card info"><div class="label">Rows</div><div class="value">{{ report.row_count }}</div></div>
-    <div class="card info"><div class="label">Columns</div><div class="value">{{ report.column_count }}</div></div>
-    <div class="card info"><div class="label">Total Rules</div><div class="value">{{ report.total_rules }}</div></div>
-    <div class="card pass"><div class="label">Passed</div><div class="value">{{ report.passed_rules }}</div></div>
-    <div class="card fail"><div class="label">Failed</div><div class="value">{{ report.failed_rules }}</div></div>
-    <div class="card info"><div class="label">Suggested</div><div class="value">{{ report.suggested_rules }}</div></div>
+  <h1>dq-doctor data quality report</h1>
+  <div class="meta">
+    contract v{{ outcome.schema_version }} &middot; generated {{ outcome.finished_at }}
+    &middot; datasource <code>{{ outcome.datasource }}</code>
+    &middot; dq-doctor {{ outcome.dqdoctor_version }}
+    {% if outcome.gate_policy %}&middot; gate: max-failures {{ outcome.gate_policy.max_failures }},
+    fail-on {{ outcome.gate_policy.fail_on }}{% endif %}
   </div>
 
-  <h2>Column Profile</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Column</th>
-        <th>Type</th>
-        <th>Null Rate</th>
-        <th>Distinct Rate</th>
-        <th>Min</th>
-        <th>Max</th>
-        <th>Semantic</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for col in report.profile.columns %}
-      <tr>
-        <td><strong>{{ col.name }}</strong></td>
-        <td>{{ col.dtype }}</td>
-        <td>{{ "%.2f%%" | format(col.null_rate * 100) }}</td>
-        <td>{{ "%.2f%%" | format(col.distinct_rate * 100) }}</td>
-        <td>{{ col.min_value if col.min_value is not none else "-" }}</td>
-        <td>{{ col.max_value if col.max_value is not none else "-" }}</td>
-        <td><span class="badge badge-{{ col.inferred_semantic_type }}">{{ col.inferred_semantic_type }}</span></td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+  {% for table in outcome.tables %}
+  <div class="card">
+    <h2 style="margin-top:0">
+      {{ table.table_name }}
+      {% if table.score is none %}
+        <span class="pill na">score n/a (no executed checks)</span>
+      {% elif table.score >= 80 %}
+        <span class="pill green">{{ table.score }}/100</span>
+      {% elif table.score >= 50 %}
+        <span class="pill gray">{{ table.score }}/100</span>
+      {% else %}
+        <span class="pill red">{{ table.score }}/100</span>
+      {% endif %}
+      <span class="note">score v{{ table.score_version }} &middot;
+        {{ table.profile.row_count }} rows &middot; {{ table.profile.columns|length }} columns
+        {% if table.profile.sampling.method == 'sample' %}
+          &middot; sampled: {{ table.profile.sampling.sample_size }}/{{ table.profile.sampling.row_count }} rows
+        {% endif %}
+      </span>
+    </h2>
 
-  <h2>Rule Suggestions</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Rule Type</th>
-        <th>Column</th>
-        <th>Confidence</th>
-        <th>Severity</th>
-        <th>Reason</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for rule in report.rules %}
-      <tr>
-        <td><strong>{{ rule.rule_type }}</strong></td>
-        <td>{{ rule.column }}</td>
-        <td>{{ "%.0f%%" | format(rule.confidence * 100) }}</td>
-        <td><span class="badge badge-{{ rule.severity }}">{{ rule.severity }}</span></td>
-        <td>{{ rule.reason }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+    {% if table.pii_findings %}
+    <div class="card pii">
+      <strong>PII findings</strong> (informational, not part of the score)
+      <table>
+        <tr><th>Column</th><th>Type</th><th>Evidence</th></tr>
+        {% for p in table.pii_findings %}
+        <tr><td>{{ p.column }}</td><td>{{ p.pii_type }}</td>
+            <td>{{ "%.0f"|format(p.matched_fraction * 100) }}% of {{ p.sample_size }} samples</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endif %}
 
-  <h2>Validation Results</h2>
-  <table>
-    <thead>
+    <table>
+      <tr><th>Rule</th><th>Status</th><th>Severity</th><th>Detail</th></tr>
+      {% for r in table.rule_results %}
       <tr>
-        <th>Status</th>
-        <th>Rule Type</th>
-        <th>Column</th>
-        <th>Source</th>
-        <th>Failed / Total</th>
-        <th>Message</th>
+        <td><code>{{ r.rule_id }}</code></td>
+        <td class="{{ r.status.value }}{% if r.exempted %} exempt{% endif %}">
+          {{ r.status.value }}{% if r.exempted %} (baseline-exempted){% endif %}</td>
+        <td>{{ r.severity }}</td>
+        <td>{{ r.message }}</td>
       </tr>
-    </thead>
-    <tbody>
-    {% for result in report.results %}
-      <tr>
-        <td>
-          {% if result.total_count == 0 and result.passed %}
-          <span class="badge badge-suggest">SUGGEST</span>
-          {% elif result.passed %}
-          <span class="badge badge-pass">PASS</span>
-          {% else %}
-          <span class="badge badge-fail">FAIL</span>
-          {% endif %}
-        </td>
-        <td><strong>{{ result.rule_type }}</strong></td>
-        <td>{{ result.column }}</td>
-        <td>
-          {% set rule = report.rules | selectattr('rule_id', 'equalto', result.rule_id) | first %}
-          {% if rule and rule.source == 'llm' %}
-          <span class="badge badge-suggest">LLM</span>
-          {% else %}
-          <span class="badge" style="background:#f1f5f9;color:#475569;">heuristic</span>
-          {% endif %}
-        </td>
-        <td>{{ result.failed_count }} / {{ result.total_count }}</td>
-        <td>{{ result.message }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+      {% endfor %}
+    </table>
+  </div>
+  {% endfor %}
 
-  {% set llm_rules = report.rules | selectattr('source', 'equalto', 'llm') | list %}
-  {% if llm_rules %}
-  <h2>LLM Insights</h2>
-  <table>
-    <thead>
+  {% if outcome.fk_issues %}
+  <div class="card">
+    <h2 style="margin-top:0">Referential integrity (each relationship counted once)</h2>
+    <table>
+      <tr><th>Relationship</th><th>Source</th><th>Orphans</th></tr>
+      {% for fk in outcome.fk_issues %}
       <tr>
-        <th>Rule Type</th>
-        <th>Column</th>
-        <th>Confidence</th>
-        <th>Severity</th>
-        <th>Insight</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for rule in llm_rules %}
-      <tr>
-        <td><strong>{{ rule.rule_type }}</strong></td>
-        <td>{{ rule.column }}</td>
-        <td>{{ "%.0f%%" | format(rule.confidence * 100) }}</td>
-        <td><span class="badge badge-{{ rule.severity }}">{{ rule.severity }}</span></td>
-        <td>{{ rule.reason }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-
-  {% if report.pii_findings %}
-  <h2>PII Detection</h2>
-  <table>
-    <thead>
-      <tr><th>Column</th><th>PII Type</th></tr>
-    </thead>
-    <tbody>
-    {% for p in report.pii_findings %}
-      <tr>
-        <td><strong>{{ p.column }}</strong></td>
-        <td><span class="badge badge-fail">{{ p.pii_type }}</span></td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-
-  {% if report.referential_integrity %}
-  <h2>Referential Integrity</h2>
-  <table>
-    <thead>
-      <tr><th>From</th><th>To</th><th>Orphans</th><th>Total</th><th>Status</th></tr>
-    </thead>
-    <tbody>
-    {% for ri in report.referential_integrity %}
-      <tr>
-        <td><strong>{{ ri.from_table }}.{{ ri.from_column }}</strong></td>
-        <td>{{ ri.to_table }}.{{ ri.to_column }}</td>
-        <td>{{ ri.orphan_rows }}</td>
-        <td>{{ ri.total_rows }}</td>
-        <td>
-          {% if ri.orphan_rows == 0 %}
-          <span class="badge badge-pass">PASS</span>
-          {% else %}
-          <span class="badge badge-fail">FAIL</span>
-          {% endif %}
+        <td><code>{{ fk.from_table }}.{{ fk.from_column }} &rarr; {{ fk.to_table }}.{{ fk.to_column }}</code></td>
+        <td>{{ 'declared' if fk.declared else 'heuristic' }}</td>
+        <td class="{{ 'pass' if fk.orphan_rows == 0 else 'fail' }}">
+          {{ fk.orphan_rows }}/{{ fk.total_rows }}
+          {% if fk.error %}<span class="error">{{ fk.error }}</span>{% endif %}
         </td>
       </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+      {% endfor %}
+    </table>
+  </div>
   {% endif %}
 
-  <footer>Generated by <strong>dq-doctor</strong> &middot; A lightweight data quality checkup CLI</footer>
+  <div class="note">Raw sample values are never included in reports; text
+  min/max values are fingerprinted. Generated by dq-doctor.</div>
 </div>
 </body>
 </html>

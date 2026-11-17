@@ -1,751 +1,515 @@
+"""dq-doctor CLI: parameter handling and rendering only.
+
+All execution lives in ``dqdoctor.engine.CheckEngine``. Exit codes:
+0 = success or within gate policy, 1 = quality gate tripped,
+2 = input/configuration/execution error.
+"""
 from __future__ import annotations
 
+import re
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 
-from dqdoctor.custom_rules import (
-    load_custom_rules,
-    load_disabled_keys,
-    load_severity_overrides,
-    merge_rules,
+from dqdoctor import __version__, baseline as baseline_mod, contract as contract_mod
+from dqdoctor.contract import Contract, ContractError
+from dqdoctor.datasources import (
+    DatasourceError,
+    DataSource,
+    resolve as resolve_datasource,
 )
-from dqdoctor.demo import create_demo_db, create_dirty_db, list_tables
-from dqdoctor.exporters.dbt import save_dbt_schema
-from dqdoctor.exporters.deequ import save_deequ
-from dqdoctor.exporters.gx import save_gx_suite
-from dqdoctor.exporters.markdown import save_markdown
-from dqdoctor.exporters.soda import save_soda_cl
-from dqdoctor.profiler import profile_table
-from dqdoctor.reporter import build_report, save_html
-from dqdoctor.rule_engine import generate_rules
-from dqdoctor.sql_rules import execute_sql_rules
-from dqdoctor.validator import validate_rules
-
-_VERSION = "0.7.1"
+from dqdoctor.engine import CheckEngine, decide_exit
+from dqdoctor.models import CheckOutcome, GatePolicy, RuleStatus
+from dqdoctor.outputs import write_html, write_junit, write_json
 
 app = typer.Typer(
     name="dqdoctor",
-    help="A lightweight data quality checkup CLI. No YAML, no rule syntax to remember.",
+    help="Profile tables, pin a data quality contract, gate new batches.",
     add_completion=False,
+    no_args_is_help=True,
 )
 console = Console()
+
+EXIT_OK, EXIT_GATE, EXIT_ERROR = 0, 1, 2
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"dq-doctor {__version__}")
+        raise typer.Exit(EXIT_OK)
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False, "--version", callback=_version_callback, is_eager=True,
+        help="Show version and exit",
+    ),
+) -> None:
+    """dq-doctor: one command to profile, contract and gate data quality."""
+
+
+def _fail(msg: str, code: int = EXIT_ERROR) -> None:
+    console.print(f"[red]Error:[/red] {msg}")
+    raise typer.Exit(code)
+
+
+def _safe_stem(name: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9_.-]", "_", name).strip("._") or "table"
+    return stem[:80]
+
+
+def _multi_out(out: Path, table: str) -> Path:
+    """Stable, collision-free per-table output path."""
+    return out.with_name(f"{out.stem}_{_safe_stem(table)}{out.suffix}")
+
+
+def _resolve_ds(db: Optional[str], config: Optional[Path]) -> DataSource:
+    if db is None and config is None and not Path(".dqdoctor.yml").exists():
+        _fail("--db is required (or register datasources in .dqdoctor.yml via `dqdoctor init`).")
+    try:
+        return resolve_datasource(db or "", config_path=config)
+    except DatasourceError as exc:
+        _fail(str(exc))
+
+
+def _atomic_write(path: Path, writer) -> Path:
+    """Write to a temp sibling, fsync, then replace (for --force flows)."""
+    tmp = path.with_name(path.name + ".tmp")
+    writer(tmp)
+    tmp.replace(path)
+    return path
+
+
+# ---------------------------------------------------------------------------
+# demo / init
 
 
 @app.command()
 def demo(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output DuckDB path"),
-    dirty: bool = typer.Option(
-        False, "--dirty", help="Generate dirty demo with intentional data quality issues"
-    ),
+    dirty: bool = typer.Option(False, "--dirty", help="Demo data with intentional issues"),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing file"),
 ) -> None:
-    if dirty:
-        db_path = create_dirty_db(output)
-        console.print(
-            Panel(
-                f"[yellow]Dirty demo database created[/yellow]\n"
-                f"Contains intentional data quality issues for testing.\n\n"
-                f"[bold]Database:[/bold]  {db_path}\n"
-                f"[bold]Tables:[/bold]    {', '.join(list_tables(db_path))}",
-                title="[bold]dq-doctor[/bold] demo --dirty",
-                border_style="yellow",
-            )
+    """Create a demo DuckDB database (refuses to overwrite without --force)."""
+    from dqdoctor.demo import create_demo_db, create_dirty_db
+
+    db_path = Path(output) if output else Path("dirty.duckdb" if dirty else "demo.duckdb")
+    if db_path.exists() and not force:
+        _fail(
+            f"{db_path} already exists. Pass --force to overwrite "
+            "(the file is fully rebuilt in a temp sibling before replacing)."
         )
-    else:
-        db_path = create_demo_db(output)
-        tables = list_tables(db_path)
-        console.print(
-            Panel(
-                f"[green]Demo database created[/green]\n\n"
-                f"[bold]Database:[/bold]  {db_path}\n"
-                f"[bold]Tables:[/bold]    {', '.join(tables)}",
-                title="[bold]dq-doctor[/bold] demo",
-                border_style="green",
-            )
-        )
-        if tables:
-            console.print(f"[dim]  Next: dqdoctor check --db {db_path} --table {tables[0]}[/dim]")
+    creator = create_dirty_db if dirty else create_demo_db
+    creator(str(db_path))
+    console.print(f"[green]Demo database created:[/green] {db_path}")
+    console.print(f"[dim]Next: dqdoctor check --db {db_path} --all-tables[/dim]")
+
+
+@app.command()
+def init(
+    force: bool = typer.Option(False, "--force", help="Overwrite existing config"),
+) -> None:
+    """Create a .dqdoctor.yml with datasource aliases."""
+    path = Path(".dqdoctor.yml")
+    if path.exists() and not force:
+        _fail(f"{path} already exists; pass --force to overwrite.")
+    content = (
+        "# dq-doctor 1.0 configuration: named datasources\n"
+        "datasources:\n"
+        "  demo: demo.duckdb\n"
+        "  # prod: postgresql://user:pass@host:5432/db?schema=analytics\n"
+        "default: demo\n"
+    )
+    _atomic_write(path, lambda p: p.write_text(content, encoding="utf-8"))
+    console.print("[green]Created .dqdoctor.yml[/green] with a 'demo' datasource alias.")
+
+
+# ---------------------------------------------------------------------------
+# tables / profile
 
 
 @app.command()
 def tables(
-    db: Optional[str] = typer.Option(None, "--db", help="Path to database"),
-    config: Optional[str] = typer.Option(
-        None, "--config", help="Path to .dqdoctor.yml config file"
-    ),
+    db: Optional[str] = typer.Option(None, "--db", help="Datasource spec or alias"),
+    config: Optional[Path] = typer.Option(None, "--config", help="Config file path"),
 ) -> None:
-    from dqdoctor.config import load_config as _load_config
+    """List tables in a datasource."""
+    ds = _resolve_ds(db, config)
+    try:
+        names = ds.tables()
+    except DatasourceError as exc:
+        _fail(str(exc))
+    t = Table(show_header=True, header_style="bold")
+    t.add_column("#", style="dim", width=4)
+    t.add_column("Table", style="bold")
+    t.add_column("Columns", justify="right")
+    con = ds.open()
+    try:
+        from dqdoctor.queries import table_columns
 
-    effective_db = _load_config(config).db or db
-    if not effective_db:
-        console.print("[red]Error: --db is required.[/red]")
-        raise typer.Exit(1)
-    table_list = list_tables(effective_db)
-    table_obj = Table(show_header=True, header_style="bold")
-    table_obj.add_column("#", style="dim", width=4)
-    table_obj.add_column("Table", style="bold")
-    for i, t in enumerate(table_list, 1):
-        table_obj.add_row(str(i), t)
-    console.print(table_obj)
-    console.print(f"[dim]{len(table_list)} table(s) in {effective_db}[/dim]")
-
-
-def _print_profile(profile_result) -> None:
-    table = Table(title=f"Profile: {profile_result.table_name} ({profile_result.row_count} rows)")
-    table.add_column("Column", style="bold")
-    table.add_column("Type")
-    table.add_column("Null Rate", justify="right")
-    table.add_column("Distinct Rate", justify="right")
-    table.add_column("Min")
-    table.add_column("Max")
-    table.add_column("Semantic")
-    table.add_column("PII")
-
-    for col in profile_result.columns:
-        pii_label = f"[red]{col.pii_type}[/red]" if col.pii_type else "-"
-        table.add_row(
-            col.name,
-            col.dtype,
-            f"{col.null_rate:.2%}",
-            f"{col.distinct_rate:.2%}",
-            str(col.min_value) if col.min_value is not None else "-",
-            str(col.max_value) if col.max_value is not None else "-",
-            col.inferred_semantic_type,
-            pii_label,
-        )
-    console.print(table)
+        for i, name in enumerate(names, 1):
+            t.add_row(str(i), name, str(len(table_columns(con, name))))
+    finally:
+        con.close()
+    console.print(t)
 
 
 @app.command()
 def profile(
-    db: str = typer.Option(..., "--db", help="Path to database"),
-    table: str = typer.Option(..., "--table", help="Table name to profile"),
-    out: Optional[str] = typer.Option(
-        None, "--out", help="Output JSON path (saves profile for drift comparison)"
+    db: Optional[str] = typer.Option(None, "--db", help="Datasource spec or alias"),
+    table: str = typer.Option(..., "--table", help="Table name"),
+    sample_rows: Optional[int] = typer.Option(
+        None, "--sample-rows", help="Deterministic first-N sampling for profiling"
     ),
+    out: Optional[Path] = typer.Option(None, "--out", help="Save profile JSON (redacted)"),
 ) -> None:
-    from dqdoctor.drift import save_profile
+    """Profile one table (batched aggregates + PII evidence)."""
+    ds = _resolve_ds(db, None)
+    engine = CheckEngine(ds)
+    con = ds.open()
+    try:
+        from dqdoctor.profiling import profile_table
 
-    profile_result = profile_table(db, table)
-    _print_profile(profile_result)
-
-    if out:
-        out_path = Path(out)
-        save_profile(profile_result, out_path)
-        console.print(f"[green]Profile saved to:[/green] {out_path}")
-
-
-def _run_check(
-    db: str,
-    table: str,
-    out: str,
-    ci: bool = False,
-    max_failures: int = 0,
-    llm_key: Optional[str] = None,
-    llm_base_url: Optional[str] = None,
-    llm_model: str = "deepseek-chat",
-    rules_file: Optional[str] = None,
-    config: Any = None,
-    save_profile_dir: Optional[str] = None,
-    verbose_rules: bool = False,
-) -> int:
-    from dqdoctor.config import apply_config_to_rules, get_sql_rules
-
-    with console.status("[bold blue]Profiling table..."):
-        profile_result = profile_table(db, table)
-
-    if save_profile_dir:
-        from datetime import datetime
-
-        from dqdoctor.drift import save_profile
-
-        pdir = Path(save_profile_dir)
-        pdir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        ppath = pdir / f"{table}_{ts}.json"
-        save_profile(profile_result, ppath)
-        console.print(f"[dim]Profile saved to {ppath}[/dim]")
-
-    with console.status("[bold blue]Generating rules..."):
-        rules = generate_rules(
-            profile_result,
-            llm_key=llm_key,
-            llm_base_url=llm_base_url,
-            llm_model=llm_model,
+        result = profile_table(con, ds.describe(), table, sample_rows=sample_rows)
+    except Exception as exc:  # noqa: BLE001
+        _fail(f"profiling failed: {exc}")
+    finally:
+        con.close()
+    t = Table(title=f"Profile: {table}")
+    for header in ("Column", "Type", "Null%", "Distinct", "Semantic", "PII"):
+        t.add_column(header)
+    for col in result.columns:
+        t.add_row(
+            col.name, col.dtype, f"{col.null_rate:.1%}", str(col.distinct_count),
+            col.inferred_semantic_type, col.pii_type or "-",
         )
+    console.print(t)
+    if result.sampling.method == "sample":
+        console.print(
+            f"[yellow]sampled[/yellow]: {result.sampling.sample_size}/"
+            f"{result.sampling.row_count} rows (deterministic first-N slice)"
+        )
+    if out:
+        payload = json_safe_profile(result)
+        out.write_text(payload, encoding="utf-8")
+        console.print(f"[green]Profile saved:[/green] {out} (redacted)")
 
-    if config:
-        rules, config_log = apply_config_to_rules(rules, table, config)
-    else:
-        config_log = []
 
-    if rules_file:
-        try:
-            custom = load_custom_rules(rules_file)
-            disabled = load_disabled_keys(rules_file)
-            sev_overrides = load_severity_overrides(rules_file)
-            rules = merge_rules(rules, custom, disabled, sev_overrides)
-            n_disabled = len(disabled)
-            msg = f"Loaded {len(custom)} rules from {rules_file}"
-            if n_disabled:
-                msg += f" ({n_disabled} disabled)"
-            console.print(f"[dim]{msg}[/dim]")
-        except FileNotFoundError:
-            console.print(f"[yellow]Rules file not found: {rules_file}[/yellow]")
-        except Exception as e:
-            console.print(f"[red]Error loading rules file: {e}[/red]")
+def json_safe_profile(result) -> str:
+    import json
 
-    with console.status("[bold blue]Validating..."):
-        results = validate_rules(db, table, rules)
+    from dqdoctor.redact import redact_scalar
 
-    sql_rule_defs = []
-    if config:
-        sql_rule_defs = get_sql_rules(config, table)
-    if sql_rule_defs:
-        from dqdoctor.models import RuleSuggestion
+    data = json.loads(result.model_dump_json())
+    for col in data["columns"]:
+        col["min_value"] = redact_scalar(col.get("min_value"))
+        col["max_value"] = redact_scalar(col.get("max_value"))
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
-        with console.status("[bold blue]Running SQL rules..."):
-            sql_results = execute_sql_rules(db, table, sql_rule_defs)
-            results.extend(sql_results)
-            for sr in sql_results:
-                rules.append(
-                    RuleSuggestion(
-                        rule_id=sr.rule_id,
-                        rule_type="sql",
-                        column="*",
-                        confidence=0.9,
-                        severity="medium",
-                        reason=sr.message,
-                        source="config",
-                    )
-                )
 
-    from dqdoctor.models import PIIFinding, RefIntegrityIssue
-
-    pii_findings = [
-        PIIFinding(column=c.name, pii_type=c.pii_type, sample_count=0)
-        for c in profile_result.columns
-        if c.pii_type
-    ]
-
-    refint_issues = []
-    with console.status("[bold blue]Checking referential integrity..."):
-        try:
-            from dqdoctor.ref_integrity import check_referential_integrity
-
-            ri_results = check_referential_integrity(db)
-            for ri in ri_results:
-                if ri.from_table == table or ri.to_table == table:
-                    refint_issues.append(
-                        RefIntegrityIssue(
-                            from_table=ri.from_table,
-                            from_column=ri.from_column,
-                            to_table=ri.to_table,
-                            to_column=ri.to_column,
-                            orphan_rows=ri.orphan_rows,
-                            total_rows=ri.total_rows,
-                            sample_orphans=ri.sample_orphans,
-                        )
-                    )
-        except Exception:
-            pass
-
-    report = build_report(
-        profile_result,
-        rules,
-        results,
-        pii_findings=pii_findings,
-        refint_issues=refint_issues,
-    )
-    report_path = save_html(report, out)
-
-    score_color = (
-        "green" if report.quality_score >= 80 else "yellow" if report.quality_score >= 50 else "red"
-    )
-
-    score_bar_filled = report.quality_score // 5
-    score_bar_empty = 20 - score_bar_filled
-    header = Text()
-    header.append(f"  {table}  ", style="bold")
-    header.append(f"{report.quality_score}/100 ", style=score_color)
-    header.append("█" * score_bar_filled, style=score_color)
-    header.append("░" * score_bar_empty, style="dim")
-
-    console.print()
-    console.print(header)
-    console.print(
-        f"  Rules {report.total_rules}  "
-        f"[green]Passed {report.passed_rules}[/green]  "
-        f"[red]Failed {report.failed_rules}[/red]  "
-        f"[cyan]Suggested {report.suggested_rules}[/cyan]"
-    )
-    console.print()
-
-    for r in results:
-        if r.total_count == 0 and r.passed:
-            icon = "[cyan]SUGGEST[/cyan]"
-        else:
-            icon = "[green]PASS[/green]" if r.passed else "[red]FAIL[/red]"
-        console.print(f"  {icon} {r.rule_type} on {r.column}: {r.message}")
-
-    if verbose_rules:
-        console.print("[dim]Rule sources:[/dim]")
-        for r in rules:
-            source_label = r.source if r.source != "heuristic" else "auto"
-            console.print(
-                f"  [dim]{r.rule_type}.{r.column}: {source_label} (severity={r.severity})[/dim]"
-            )
-        for log_line in config_log:
-            console.print(f"  [dim]{log_line}[/dim]")
-        if rules_file:
-            disabled = load_disabled_keys(rules_file)
-            for rk in disabled:
-                console.print(f"  [dim]{rk[0]}.{rk[1]}: disabled by {rules_file}[/dim]")
-
-    if pii_findings:
-        console.print("[yellow]PII detected:[/yellow]")
-        for p in pii_findings:
-            console.print(f"  [red]{p.pii_type}[/red] in column '{p.column}'")
-
-    for ri in refint_issues:
-        if ri.orphan_rows > 0:
-            console.print(
-                f"  [red]ORPHAN[/red] {ri.from_table}.{ri.from_column} -> "
-                f"{ri.to_table}.{ri.to_column}: "
-                f"{ri.orphan_rows}/{ri.total_rows} orphans"
-            )
-
-    console.print(f"[dim]Report: {report_path}[/dim]")
-    console.print()
-
-    if ci:
-        refint_fails = sum(1 for ri in refint_issues if ri.orphan_rows > 0)
-        total_fails = report.failed_rules + refint_fails
-        if total_fails > max_failures:
-            return total_fails
-    return 0
+# ---------------------------------------------------------------------------
+# check / rules-init
 
 
 @app.command()
 def check(
-    db: Optional[str] = typer.Option(
-        None, "--db", help="Path to database (or set in .dqdoctor.yml)"
+    db: Optional[str] = typer.Option(None, "--db", help="Datasource spec or alias"),
+    table: Optional[str] = typer.Option(None, "--table", help="Table to check"),
+    all_tables: bool = typer.Option(False, "--all-tables", help="Check every table"),
+    rules: Optional[Path] = typer.Option(
+        None, "--rules", help="1.0 contract file (pinned rules; no re-learning)"
     ),
-    table: Optional[str] = typer.Option(None, "--table", help="Table name to check"),
-    all_tables: bool = typer.Option(False, "--all-tables", help="Check all tables in the database"),
-    out: str = typer.Option("report.html", "--out", help="Output HTML report path"),
-    ci: bool = typer.Option(False, "--ci", help="CI mode: exit with non-zero code on failures"),
-    max_failures: int = typer.Option(
-        0, "--max-failures", help="Max allowed failures (CI mode only)"
+    out: Path = typer.Option(Path("report.html"), "--out", help="HTML report path"),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="JSON report path"),
+    junit_out: Optional[Path] = typer.Option(None, "--junit", help="JUnit XML path"),
+    ci: bool = typer.Option(False, "--ci", help="Apply gate and exit codes"),
+    max_failures: int = typer.Option(0, "--max-failures", help="Gate: allowed failures"),
+    fail_on: str = typer.Option(
+        "low", "--fail-on", help="Gate: trip on failures at this severity or higher"
     ),
-    llm_key: Optional[str] = typer.Option(None, "--llm-key", help="LLM API key for enhanced rules"),
-    llm_base_url: Optional[str] = typer.Option(None, "--llm-base-url", help="LLM API base URL"),
-    llm_model: str = typer.Option("deepseek-chat", "--llm-model", help="LLM model name"),
-    rules: Optional[str] = typer.Option(
-        None, "--rules", help="Path to custom rules file (JSON/YAML)"
-    ),
-    config: Optional[str] = typer.Option(
-        None, "--config", help="Path to .dqdoctor.yml config file"
-    ),
-    save_profile: Optional[str] = typer.Option(
-        None, "--save-profile", help="Directory to save profile JSON for drift comparison"
-    ),
-    verbose_rules: bool = typer.Option(
-        False, "--verbose-rules", help="Show rule source and override details"
-    ),
+    baseline: Optional[Path] = typer.Option(None, "--baseline", help="Known-failure baseline"),
+    sample_rows: Optional[int] = typer.Option(None, "--sample-rows", help="Profiling sampling"),
+    sql_timeout: float = typer.Option(30.0, "--sql-timeout", help="SQL rule timeout (s)"),
+    config: Optional[Path] = typer.Option(None, "--config", help="Config file path"),
 ) -> None:
-    from dqdoctor.config import load_config
+    """Run a check.
 
-    dq_config = load_config(config)
-    effective_db = dq_config.db or db
-    if not effective_db:
-        console.print("[red]Error: --db is required (or set db in .dqdoctor.yml).[/red]")
-        raise typer.Exit(1)
+    Without --rules this is explore mode: learned bounds appear as
+    SUGGESTIONs, never as verified passes. With --rules the contract is
+    executed as pinned; CI exit codes: 0 ok, 1 gate, 2 error.
+    """
+    if fail_on not in ("high", "medium", "low"):
+        _fail(f"--fail-on must be high/medium/low, got {fail_on!r}")
+    ds = _resolve_ds(db, config)
+    contract = None
+    if rules is not None:
+        try:
+            contract = contract_mod.load_contract(rules)
+        except ContractError as exc:
+            _fail(str(exc))
+        if contract.datasource and db is None:
+            ds = _resolve_ds(contract.datasource, config)
+    base = None
+    if baseline is not None:
+        try:
+            base = baseline_mod.load_baseline(baseline)
+        except (FileNotFoundError, ValueError) as exc:
+            _fail(f"baseline: {exc}")
+        if base is not None and not isinstance(base, baseline_mod.Baseline):
+            _fail(f"baseline: unexpected content in {baseline}")
+
+    tables_wanted = None
     if all_tables:
-        table_list = list_tables(effective_db)
-        if not table_list:
+        try:
+            tables_wanted = ds.tables()
+        except DatasourceError as exc:
+            _fail(str(exc))
+        if not tables_wanted:
             console.print("[yellow]No tables found.[/yellow]")
-            raise typer.Exit(0)
-        total_failures = 0
-        for i, t in enumerate(table_list):
-            table_out = str(Path(out).with_name(f"{Path(out).stem}_{t}{Path(out).suffix}"))
-            failures = _run_check(
-                effective_db,
-                t,
-                table_out,
-                ci=ci,
-                max_failures=max_failures,
-                llm_key=llm_key,
-                llm_base_url=llm_base_url,
-                llm_model=llm_model,
-                rules_file=rules,
-                config=dq_config,
-                save_profile_dir=save_profile,
-                verbose_rules=verbose_rules,
-            )
-            total_failures += failures
-        if ci and total_failures > 0:
+            raise typer.Exit(EXIT_OK)
+    elif not table:
+        _fail("--table is required (or use --all-tables).")
+
+    policy = GatePolicy(max_failures=max_failures, fail_on=fail_on,
+                        baseline_active=base is not None) if ci else None
+    engine = CheckEngine(ds, sql_timeout=sql_timeout)
+    try:
+        outcome = engine.run(
+            tables=tables_wanted or ([table] if table else None),
+            contract=contract, baseline=base,
+            explore=contract is None,
+            sample_rows=sample_rows, policy=policy,
+        )
+    except DatasourceError as exc:
+        _fail(str(exc))
+
+    _render_outcome(outcome, contract_mode=contract is not None)
+    paths = [_multi_or_single(out, outcome, write_html, ".html")]
+    if json_out:
+        paths.append(_multi_or_single(json_out, outcome, write_json, ".json"))
+    if junit_out:
+        write_junit(outcome, junit_out)
+        paths.append(junit_out)
+    console.print("[dim]Reports: " + ", ".join(str(p) for p in paths) + "[/dim]")
+
+    if ci:
+        code = decide_exit(outcome, policy, base)
+        if code == EXIT_GATE:
+            gate_failures = len(outcome.non_exempt_failures)
             console.print(
-                f"[red]CI: {total_failures} total failures, threshold is {max_failures}.[/red]"
+                f"[red]CI gate tripped:[/red] {gate_failures} non-exempt failure(s) "
+                f"(max-failures={max_failures}, fail-on={fail_on})."
             )
-            raise typer.Exit(1)
-    else:
-        if not table:
-            console.print("[red]Error: --table is required when --all-tables is not set.[/red]")
-            raise typer.Exit(1)
-        failures = _run_check(
-            effective_db,
-            table,
-            out,
-            ci=ci,
-            max_failures=max_failures,
-            llm_key=llm_key,
-            llm_base_url=llm_base_url,
-            llm_model=llm_model,
-            rules_file=rules,
-            config=dq_config,
-            save_profile_dir=save_profile,
-            verbose_rules=verbose_rules,
+        raise typer.Exit(code)
+
+
+def _multi_or_single(out: Path, outcome: CheckOutcome, writer, suffix: str) -> Path:
+    if len(outcome.tables) == 1:
+        return writer(outcome, out)
+    written = None
+    for table in outcome.tables:
+        sub = CheckOutcome(
+            dqdoctor_version=outcome.dqdoctor_version,
+            started_at=outcome.started_at, finished_at=outcome.finished_at,
+            datasource=outcome.datasource, tables=[table],
+            fk_issues=outcome.fk_issues, gate_policy=outcome.gate_policy,
         )
-        if ci and failures > 0:
-            raise typer.Exit(1)
+        written = writer(sub, _multi_out(out, table.table_name))
+    return written or out
 
 
-_EXPORT_FORMATS = {
-    "dbt": save_dbt_schema,
-    "gx": save_gx_suite,
-    "markdown": save_markdown,
-    "soda": save_soda_cl,
-    "deequ": save_deequ,
-}
-
-
-@app.command()
-def export(
-    db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
-    table: str = typer.Option(..., "--table", help="Table name to export"),
-    fmt: str = typer.Option(
-        ...,
-        "--format",
-        help="Export format: dbt, gx, markdown, soda, deequ",
-    ),
-    out: str = typer.Option(
-        ...,
-        "--out",
-        help="Output file path",
-    ),
-) -> None:
-    if fmt not in _EXPORT_FORMATS:
+def _render_outcome(outcome: CheckOutcome, contract_mode: bool) -> None:
+    mode = "contract" if contract_mode else "explore (suggestions, nothing verified)"
+    console.print(Panel(f"mode: {mode}  datasource: {outcome.datasource}"))
+    for table in outcome.tables:
+        score = "n/a" if table.score is None else f"{table.score}/100"
+        counts = {s: 0 for s in RuleStatus}
+        for r in table.rule_results:
+            counts[r.status] += 1
         console.print(
-            f"[red]Unknown format '{fmt}'. Choose from: {', '.join(_EXPORT_FORMATS)}[/red]"
+            f"  [bold]{table.table_name}[/bold]  score {score}  "
+            f"[green]pass {counts[RuleStatus.PASS]}[/green]  "
+            f"[red]fail {counts[RuleStatus.FAIL]}[/red]  "
+            f"[yellow]skip {counts[RuleStatus.SKIP]}[/yellow]  "
+            f"[cyan]suggest {counts[RuleStatus.SUGGESTION]}[/cyan]  "
+            f"[magenta]error {counts[RuleStatus.ERROR]}[/magenta]"
         )
-        raise typer.Exit(1)
-
-    profile_result = profile_table(db, table)
-    gen_rules = generate_rules(profile_result)
-    exporter = _EXPORT_FORMATS[fmt]
-    output_path = exporter(profile_result, gen_rules, out)
-    console.print(f"[green]Exported {fmt} to:[/green] {output_path}")
-
-
-@app.command()
-def fk(
-    db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
-    min_overlap: float = typer.Option(0.5, "--min-overlap", help="Minimum overlap rate threshold"),
-) -> None:
-    from dqdoctor.fk_discovery import discover_foreign_keys
-
-    with console.status("[bold blue]Discovering foreign keys..."):
-        relationships = discover_foreign_keys(db, min_overlap=min_overlap)
-
-    if not relationships:
-        console.print("[yellow]No foreign key relationships found.[/yellow]")
-        return
-
-    table = Table(title="Discovered Foreign Keys")
-    table.add_column("From", style="bold")
-    table.add_column("To", style="bold")
-    table.add_column("Overlap", justify="right")
-    table.add_column("Confidence", justify="right")
-
-    for rel in relationships:
-        table.add_row(
-            f"{rel.from_table}.{rel.from_column}",
-            f"{rel.to_table}.{rel.to_column}",
-            f"{rel.overlap_rate:.0%}",
-            f"{rel.confidence:.0%}",
-        )
-    console.print(table)
-
-
-@app.command()
-def correlate(
-    db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
-    table: str = typer.Option(..., "--table", help="Table name"),
-) -> None:
-    from dqdoctor.correlation import detect_correlations
-
-    with console.status("[bold blue]Detecting correlations..."):
-        corrs = detect_correlations(db, table)
-
-    if not corrs:
-        console.print("[yellow]No significant correlations found.[/yellow]")
-        return
-
-    for c in corrs:
-        console.print(f"  [{c.correlation_type}] {c.description} (confidence: {c.confidence:.0%})")
-
-
-@app.command()
-def drift(
-    old: str = typer.Option(..., "--old", help="Path to old profile JSON"),
-    new: str = typer.Option(..., "--new", help="Path to new profile JSON"),
-) -> None:
-    from dqdoctor.drift import compare_profiles, load_profile
-
-    old_profile = load_profile(old)
-    new_profile = load_profile(new)
-    result = compare_profiles(old_profile, new_profile)
-
-    console.print(f"[bold]{result.summary}[/bold]")
-    for d in result.drifts:
-        color = {"high": "red", "medium": "yellow", "low": "green"}[d.severity]
-        console.print(
-            f"  [{color}]{d.severity.upper()}[/{color}] {d.column}.{d.metric}: {d.change}"
-        )
-
-
-@app.command()
-def lineage(
-    db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
-) -> None:
-    from dqdoctor.lineage import discover_lineage
-
-    with console.status("[bold blue]Discovering lineage..."):
-        result = discover_lineage(db)
-
-    if not result.edges:
-        console.print("[yellow]No lineage edges found.[/yellow]")
-        return
-
-    console.print(f"[bold]{result.summary}[/bold]")
-    for edge in result.edges:
-        icon = "FK" if edge.lineage_type == "foreign_key" else "CORR"
-        console.print(f"  [{icon}] {edge.description} (confidence: {edge.confidence:.0%})")
-
-
-@app.command()
-def serve(
-    db: str = typer.Option(..., "--db", help="Path to DuckDB database"),
-    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind"),
-    port: int = typer.Option(8501, "--port", help="Port to bind"),
-) -> None:
-    from dqdoctor.dashboard import run_dashboard
-
-    run_dashboard(db, host=host, port=port)
-
-
-@app.command()
-def refint(
-    db: Optional[str] = typer.Option(None, "--db", help="Path to database"),
-    config: Optional[str] = typer.Option(
-        None, "--config", help="Path to .dqdoctor.yml config file"
-    ),
-) -> None:
-    from dqdoctor.config import load_config as _load_config
-    from dqdoctor.ref_integrity import check_referential_integrity
-
-    effective_db = _load_config(config).db or db
-    if not effective_db:
-        console.print("[red]Error: --db is required.[/red]")
-        raise typer.Exit(1)
-
-    with console.status("[bold blue]Checking referential integrity..."):
-        results = check_referential_integrity(effective_db)
-
-    if not results:
-        console.print("[yellow]No foreign key relationships found.[/yellow]")
-        return
-
-    for r in results:
-        icon = "[green]PASS[/green]" if r.passed else "[red]FAIL[/red]"
-        console.print(
-            f"  {icon} {r.from_table}.{r.from_column} → "
-            f"{r.to_table}.{r.to_column}: "
-            f"{r.orphan_rows}/{r.total_rows} orphans"
-        )
-        if r.sample_orphans:
-            samples = ", ".join(str(v) for v in r.sample_orphans[:5])
-            console.print(f"       Sample orphans: [{samples}]")
+        for r in table.rule_results:
+            style = {
+                RuleStatus.PASS: "green", RuleStatus.FAIL: "red",
+                RuleStatus.SKIP: "yellow", RuleStatus.SUGGESTION: "cyan",
+                RuleStatus.ERROR: "magenta",
+            }[r.status]
+            exempt = " [dim](baseline-exempted)[/dim]" if r.exempted else ""
+            console.print(f"    [{style}]{r.status.value.upper()}[/{style}] "
+                          f"{r.rule_id}: {r.message}{exempt}")
+        for p in table.pii_findings:
+            console.print(f"    [yellow]PII[/yellow] {p.column}: {p.pii_type} "
+                          f"({p.sample_size} samples)")
+    for fk in outcome.fk_issues:
+        if fk.error:
+            console.print(f"  [magenta]FK ERROR[/magenta] {fk.error}")
+        elif fk.orphan_rows:
+            console.print(
+                f"  [red]ORPHAN[/red] {fk.from_table}.{fk.from_column} -> "
+                f"{fk.to_table}.{fk.to_column}: {fk.orphan_rows}/{fk.total_rows} "
+                f"({'declared' if fk.declared else 'heuristic'})"
+            )
 
 
 @app.command("rules-init")
 def rules_init(
-    db: str = typer.Option(..., "--db", help="Path to database"),
-    table: str = typer.Option(..., "--table", help="Table name"),
-    out: str = typer.Option("rules.yml", "--out", help="Output rules file path"),
+    db: Optional[str] = typer.Option(None, "--db", help="Datasource spec or alias"),
+    table: Optional[str] = typer.Option(None, "--table", help="Table (repeatable not supported; use --all-tables)"),
+    all_tables: bool = typer.Option(False, "--all-tables", help="Contract for every table"),
+    out: Path = typer.Option(Path("contract.yml"), "--out", help="Contract output path"),
 ) -> None:
-    import yaml as _yaml
+    """Generate an editable 1.0 contract from current (reference) data."""
+    if not table and not all_tables:
+        _fail("--table or --all-tables is required.")
+    ds = _resolve_ds(db, None)
+    engine = CheckEngine(ds)
+    names = ds.tables() if all_tables else [table]
+    outcome = engine.run(tables=names, explore=True)
+    specs = {}
+    from dqdoctor.suggest import suggest_for_table, table_scoped
 
-    profile_result = profile_table(db, table)
-    rules = generate_rules(profile_result)
-
-    def _serialize_params(params: dict) -> dict:
-        from decimal import Decimal
-
-        result = {}
-        for k, v in params.items():
-            if isinstance(v, Decimal):
-                result[k] = float(v)
-            elif isinstance(v, float):
-                result[k] = round(v, 4)
-            else:
-                result[k] = v
-        return result
-
-    rules_data = {
-        "table": table,
-        "db": db,
-        "rules": [
-            {
-                "rule_id": r.rule_id,
-                "rule_type": r.rule_type,
-                "column": r.column,
-                "params": _serialize_params(r.params),
-                "confidence": round(r.confidence, 2),
-                "severity": r.severity,
-                "reason": r.reason,
-                "enabled": True,
-            }
-            for r in rules
-        ],
-    }
-
-    out_path = Path(out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
-        _yaml.dump(rules_data, default_flow_style=False, allow_unicode=True),
-        encoding="utf-8",
+    for tc in outcome.tables:
+        specs[tc.table_name] = [
+            table_scoped(s, tc.table_name) for s in suggest_for_table(tc.profile)
+        ]
+    contract = contract_mod.build_contract(
+        [tc.profile for tc in outcome.tables], specs, datasource=ds.describe()
     )
-    console.print(f"[green]Generated {len(rules)} rules for '{table}'[/green]")
-    console.print(f"[green]Saved to:[/green] {out_path}")
-    console.print("[dim]Edit the file to enable/disable rules, change severity, then:")
-    console.print(f"[dim]  dqdoctor check --db {db} --table {table} --rules {out}[/dim]")
+    contract_mod.save_contract(contract, out)
+    total = sum(len(v) for v in specs.values())
+    console.print(f"[green]Contract written:[/green] {out} ({total} rules, "
+                  f"{len(specs)} table(s))")
+    console.print(f"[dim]Edit it, then: dqdoctor check --db {ds.describe()} "
+                  f"--all-tables --rules {out} --ci[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# baseline
 
 
 @app.command()
-def doctor() -> None:
-    import importlib
-    import sys
+def baseline(
+    action: str = typer.Argument(..., help="capture | help"),
+    db: Optional[str] = typer.Option(None, "--db", help="Datasource spec or alias"),
+    rules: Optional[Path] = typer.Option(None, "--rules", help="Contract file"),
+    all_tables: bool = typer.Option(True, "--all-tables", help="Capture across tables"),
+    out: Path = typer.Option(Path("baseline.json"), "--out", help="Baseline output"),
+) -> None:
+    """Capture current failures as the known-failure baseline."""
+    if action != "capture":
+        _fail("usage: dqdoctor baseline capture --db ... --rules ...")
+    ds = _resolve_ds(db, None)
+    contract = None
+    if rules is not None:
+        try:
+            contract = contract_mod.load_contract(rules)
+        except ContractError as exc:
+            _fail(str(exc))
+    engine = CheckEngine(ds)
+    outcome = engine.run(tables=None if all_tables else None, contract=contract,
+                         explore=contract is None)
+    base = baseline_mod.capture(outcome, datetime.now(timezone.utc).isoformat())
+    baseline_mod.save_baseline(base, out)
+    console.print(f"[green]Baseline captured:[/green] {out} "
+                  f"({len(base.entries)} known rule failures, "
+                  f"{len(base.fk_pairs)} failing FK pairs)")
 
-    console.print(
-        Panel(
-            f"[bold]dq-doctor[/bold]  v{_VERSION}",
-            border_style="blue",
-            expand=False,
-        )
-    )
 
-    checks: list[tuple[str, bool, str]] = []
+# ---------------------------------------------------------------------------
+# migrate / export / drift / mcp / serve
 
-    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    py_ok = sys.version_info >= (3, 9)
-    checks.append(("Python version", py_ok, f"{py_ver} {'OK' if py_ok else 'FAIL: need 3.9+'}"))
 
-    checks.append(("dq-doctor version", True, _VERSION))
+@app.command()
+def migrate(
+    legacy: Path = typer.Option(..., "--in", help="Legacy 0.7 rules.yml or .dqdoctor.yml"),
+    out: Path = typer.Option(Path("contract.yml"), "--out", help="1.0 contract output"),
+) -> None:
+    """One-time migration of a 0.7 rules file or config into a 1.0 contract."""
+    try:
+        contract = contract_mod.migrate_legacy(legacy)
+    except ContractError as exc:
+        _fail(str(exc))
+    contract_mod.save_contract(contract, out)
+    total = sum(len(tr.rules) for tr in contract.tables.values())
+    console.print(f"[green]Migrated:[/green] {legacy} -> {out} ({total} rules)")
+
+
+@app.command()
+def export(
+    rules: Path = typer.Option(..., "--rules", help="1.0 contract file"),
+    fmt: str = typer.Option(..., "--format", help="dbt | gx | soda | deequ | markdown"),
+    out: Path = typer.Option(..., "--out", help="Output file"),
+) -> None:
+    """Export a contract (preserving overrides/disables/params)."""
+    from dqdoctor.exporters import deequ, dbt, gx, markdown, soda
 
     try:
-        import duckdb
-
-        checks.append(("DuckDB", True, duckdb.__version__))
-    except ImportError:
-        checks.append(("DuckDB", False, "not installed"))
-
-    template_ok = (Path(__file__).parent / "templates" / "report.html").exists()
-    checks.append(("Report template", template_ok, "OK" if template_ok else "MISSING"))
-
-    seed_ok = (Path(__file__).parent / "data" / "seed.sql").exists()
-    checks.append(("Demo data (seed.sql)", seed_ok, "OK" if seed_ok else "MISSING"))
-
-    config_path = Path(".dqdoctor.yml")
-    config_ok = config_path.exists()
-    config_msg = (
-        str(config_path.resolve()) if config_ok else "not found (optional, run dqdoctor init)"
-    )
-    checks.append(("Config file", config_ok, config_msg))
-
-    non_core_prefixes = ("SQLAlchemy", "psycopg2", "pymysql", "OpenAI", "Flask")
-    optional = [
-        ("SQLAlchemy", "sqlalchemy", "sql"),
-        ("psycopg2", "psycopg2", "sql"),
-        ("pymysql", "pymysql", "sql"),
-        ("OpenAI", "openai", "llm"),
-        ("Flask", "flask", "dashboard"),
-    ]
-    for label, mod_name, extra in optional:
-        display_label = f"{label} \\[{extra}]"
-        try:
-            m = importlib.import_module(mod_name)
-            ver = getattr(m, "__version__", "installed")
-            checks.append((display_label, True, ver))
-        except ImportError:
-            install_hint = f"pip install dq-doctor\\[{extra}]"
-            checks.append((display_label, False, f"not installed ({install_hint})"))
-
-    core_ok = True
-    table = Table()
-    table.add_column("Check", style="bold")
-    table.add_column("Status")
-    table.add_column("Detail")
-    for name, ok, detail in checks:
-        is_optional = name.startswith(non_core_prefixes) or name == "Config file"
-        icon = (
-            "[green]OK[/green]"
-            if ok
-            else "[yellow]--[/yellow]"
-            if is_optional
-            else "[red]MISS[/red]"
-        )
-        if not ok and not is_optional:
-            core_ok = False
-        table.add_row(name, icon, detail)
-    console.print(table)
-
-    if core_ok:
-        console.print("\n[green]All core checks passed.[/green]")
-    else:
-        console.print("\n[red]Some core checks failed.[/red]")
-        console.print("[dim]Try: pip install --upgrade dq-doctor[/dim]")
+        contract = contract_mod.load_contract(rules)
+    except ContractError as exc:
+        _fail(str(exc))
+    exporters = {
+        "dbt": dbt.save, "gx": gx.save, "soda": soda.save,
+        "deequ": deequ.save, "markdown": markdown.save,
+    }
+    if fmt not in exporters:
+        _fail(f"Unknown format {fmt!r}; choose from {', '.join(exporters)}")
+    path = exporters[fmt](contract, out)
+    console.print(f"[green]Exported {fmt}:[/green] {path}")
 
 
 @app.command()
-def init() -> None:
-    config_content = """\
-# dq-doctor configuration
-db: examples/ecommerce/demo.duckdb
+def drift(
+    old: Path = typer.Option(..., "--old", help="Old profile JSON"),
+    new: Path = typer.Option(..., "--new", help="New profile JSON"),
+) -> None:
+    """Compare two saved profiles."""
+    from dqdoctor.drift import compare_profiles, load_profile
 
-tables:
-  orders:
-    freshness:
-      created_at:
-        max_age_hours: 48
-    disable_rules:
-      - range:user_id
-    severity:
-      order_id:not_null: high
-    sql_rules:
-      - name: order_amount_positive
-        query: "SELECT COUNT(*) FROM orders WHERE total_amount <= 0"
-        expect: 0
-"""
-    Path(".dqdoctor.yml").write_text(config_content, encoding="utf-8")
-    console.print("[green]Created .dqdoctor.yml[/green]")
-    console.print("[dim]Edit it to configure your project.[/dim]")
+    try:
+        result = compare_profiles(load_profile(old), load_profile(new))
+    except Exception as exc:  # noqa: BLE001
+        _fail(f"drift failed: {exc}")
+    console.print(f"[bold]{result.summary}[/bold]")
+    for d in result.drifts:
+        color = {"high": "red", "medium": "yellow", "low": "green"}[d.severity]
+        console.print(f"  [{color}]{d.severity.upper()}[/{color}] "
+                      f"{d.column}.{d.metric}: {d.change}")
+
+
+@app.command()
+def mcp(
+    config: Optional[Path] = typer.Option(None, "--config", help="Config file path"),
+) -> None:
+    """Run a stdio MCP server (tools: list/profile/check/summary)."""
+    try:
+        from dqdoctor.mcp_server import serve
+    except ImportError as exc:
+        _fail(f"MCP extra missing: {exc} (pip install 'dq-doctor[mcp]')")
+    serve(config)
+
+
+@app.command()
+def serve(
+    report: Path = typer.Option(..., "--report", help="JSON report to serve"),
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8501, "--port"),
+) -> None:
+    """Serve an existing JSON report as a read-only web page."""
+    from dqdoctor.dashboard import run_dashboard
+
+    run_dashboard(report, host=host, port=port)
 
 
 if __name__ == "__main__":

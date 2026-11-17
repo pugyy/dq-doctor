@@ -105,6 +105,7 @@ def profile_table(
     )
 
     profiles: list[ColumnProfile] = []
+    pii_evidence: dict[str, object] = {}
     for col in columns:
         name = col["name"]
         s = stats[name]
@@ -132,10 +133,16 @@ def profile_table(
                 pii_type=evidence.pii_type if evidence else None,
             )
         )
-    return TableProfile(
+        if evidence is not None:
+            pii_evidence[name] = evidence
+    table_profile = TableProfile(
         datasource=display,
         table_name=table,
         row_count=sampling.row_count,
         columns=profiles,
         sampling=sampling,
     )
+    # Evidence travels with the profile (object attribute, not serialized);
+    # the engine turns it into PIIFinding rows for reports.
+    object.__setattr__(table_profile, "pii_evidence", pii_evidence)
+    return table_profile
