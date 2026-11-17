@@ -62,22 +62,40 @@ def _strip_schema(name: str) -> str:
 
 
 def _declared_sqla(con) -> list[FKRelationship]:
-    """information_schema FK metadata; the schema name is a bound parameter."""
+    """information_schema FK metadata.
+
+    MySQL's ``mysql_schema`` is ``None`` when the connection uses its default
+    database, so the query must fall back to ``DATABASE()`` rather than bind
+    NULL into ``table_schema = :schema`` (which matches nothing). PostgreSQL
+    always has a concrete schema (``public`` by default).
+    """
     from sqlalchemy import text
 
     con.query_count += 1
-    schema = con.mysql_schema if con.backend == "mysql" else con.sql_schema
     if con.backend == "mysql":
-        rows = con._raw.execute(
-            text(
-                "SELECT table_name, column_name, referenced_table_name, "
-                "referenced_column_name, constraint_name, ordinal_position "
-                "FROM information_schema.key_column_usage "
-                "WHERE referenced_table_name IS NOT NULL AND table_schema = :schema "
-                "ORDER BY constraint_name, ordinal_position"
-            ),
-            {"schema": schema},
-        ).fetchall()
+        if con.mysql_schema is None:
+            rows = con._raw.execute(
+                text(
+                    "SELECT table_name, column_name, referenced_table_name, "
+                    "referenced_column_name, constraint_name, ordinal_position "
+                    "FROM information_schema.key_column_usage "
+                    "WHERE referenced_table_name IS NOT NULL "
+                    "AND table_schema = DATABASE() "
+                    "ORDER BY constraint_name, ordinal_position"
+                )
+            ).fetchall()
+        else:
+            rows = con._raw.execute(
+                text(
+                    "SELECT table_name, column_name, referenced_table_name, "
+                    "referenced_column_name, constraint_name, ordinal_position "
+                    "FROM information_schema.key_column_usage "
+                    "WHERE referenced_table_name IS NOT NULL "
+                    "AND table_schema = :schema "
+                    "ORDER BY constraint_name, ordinal_position"
+                ),
+                {"schema": con.mysql_schema},
+            ).fetchall()
     else:
         rows = con._raw.execute(
             text(
@@ -93,7 +111,7 @@ def _declared_sqla(con) -> list[FKRelationship]:
                 "WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = :schema "
                 "ORDER BY tc.constraint_name, kcu.ordinal_position"
             ),
-            {"schema": schema},
+            {"schema": con.sql_schema},
         ).fetchall()
 
     grouped: dict[str, dict] = {}

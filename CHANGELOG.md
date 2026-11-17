@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.0.3
+
+Live-backend verification (MySQL 9.5.0, PostgreSQL 16.2). Running the
+cross-backend suite against real servers exposed two bugs that DuckDB-only
+testing could not see.
+
+### Fixed
+
+- **MySQL declared foreign keys were never discovered when the URL uses the
+  default database.** `_declared_sqla` bound `None` into
+  `table_schema = :schema` (the default-database case sets
+  `mysql_schema = None`), which matches no rows. The query now uses
+  `DATABASE()` when no schema is given, mirroring the existing metadata
+  fix. FK direction and orphan detection on MySQL now work.
+- **`DataSource.open(read_only=False)` was still read-only on PostgreSQL.**
+  `default_transaction_read_only=on` was hardcoded in `connect_args`, so
+  fixtures and maintenance tooling could not even `DROP TABLE IF EXISTS`.
+  The flag now follows the `read_only` argument; `check` still enforces
+  read-only itself, and MySQL gets the same treatment.
+
+### Verified against live servers
+
+`tests/test_backends.py` (8 cases) and `tests/test_live_backends.py`
+(6 cases) run against a local MySQL 9.5.0 and PostgreSQL 16.2: identical
+verdicts per backend, read-only sessions rejecting writes, SQL rule scalar
+contracts, declared FK direction, reserved-word identifiers
+(`order`, `select`), and engine-level read-only enforcement with a row
+that must survive.
+
+190 tests, 84% coverage.
+
 ## v1.0.2
 
 Third audit pass. Closes the remaining release blockers.

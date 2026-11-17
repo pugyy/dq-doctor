@@ -7,6 +7,13 @@ covered, as of 1.0.0.
 
 - **DuckDB**: profiling, all built-in rules, SQL rules, declared + heuristic
   FK, file sources (CSV/Parquet/JSON), sampling.
+- **MySQL 9.5 and PostgreSQL 16.2 (live servers)**: `tests/test_backends.py`
+  and `tests/test_live_backends.py` ran against real instances. Verified:
+  identical verdicts from `unique`/`accepted_values`/`range`; read-only
+  sessions rejecting writes; SQL rule scalar contracts; declared FK
+  direction (including the MySQL default-database case); reserved-word
+  table/column names (``order``, ``select``); `open(read_only=False)`
+  actually writable on PostgreSQL.
 - **Rule semantics**: nullable `unique`, empty-table `not_null`, SQL rule
   returning 0, missing-parameter skips, suggestion-vs-pass separation.
 - **Sampling isolation**: `check --rules` always profiles the full table;
@@ -20,25 +27,23 @@ covered, as of 1.0.0.
 - **Baseline**: exemption, deterioration still gating, errors never exempted.
 - **Reports**: numeric/temporal statistics stay readable, text min/max is
   fingerprinted, no raw samples in JSON/HTML, HTML autoescape, credentials
-  redacted.
+  redacted (userinfo **and** query parameters).
 - **Identifiers**: CJK names, hyphens and digit-leading names work
   (quoted + escaped); control characters and double quotes are rejected.
+- **Windows console**: GBK output verified via subprocess test.
 - **Performance**: 40 integer columns = 2 queries; 1M rows x 4 columns =
   3 queries. Text columns cost one extra `DISTINCT ... LIMIT` each, because
   PII evidence needs sample values (`tests/test_perf.py`).
-- **Coverage**: 80.9% line coverage, gated at 75% in `pyproject.toml`.
+- **Coverage**: ~84% line coverage, gated at 75% in `pyproject.toml`.
 
 ## Not verified in this environment
 
-- **PostgreSQL / MySQL end-to-end**: `tests/test_backends.py` runs in CI
-  against real services but was **not executed locally** (no Docker daemon
-  on this machine). Backend-specific paths - session read-only,
-  `information_schema` queries, `<=>` vs `IS NOT DISTINCT FROM`, schema
-  selection - are therefore unproven here. The `DATABASE()`-on-PostgreSQL
-  bug found by audit is fixed and pinned by a source-level test, but a live
-  PostgreSQL run is still the first real proof.
-- **CI has not run**: the workflow targets `main`; the `v1.0` branch has
-  never been pushed, so no CI job has executed.
+- **CI has not run**: the workflow targets all branches now, but the `v1.0`
+  branch has never been pushed.
+- **Live servers used for verification were local**: MySQL 9.5.0 and
+  embedded PostgreSQL 16.2 (pgserver) on loopback. Non-default MySQL
+  schemas via `?schema=` are exercised only in a skipped case because the
+  local instance has a single database.
 - **dbt parse/test**: exporter emits dbt >= 1.8 `data_tests` with numeric
   literal ranges; no dbt project parsed it. `dbt_utils` is required for
   range expressions.
@@ -48,7 +53,7 @@ covered, as of 1.0.0.
   CLI run validated it.
 - **MCP stdio client**: server uses the official `mcp` SDK; no full client
   round-trip was executed (SDK not installed here).
-- **Python 3.14 / 3.15**: `requires-python >= 3.12`; local run was 3.12 only.
+- **Python 3.14 / 3.15**: local run was 3.12 only.
 
 ## Known approximations
 

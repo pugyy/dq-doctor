@@ -428,7 +428,11 @@ class DataSource:
         from sqlalchemy import create_engine
 
         connect_args: dict[str, Any] = {}
-        if self.spec.kind == "postgresql":
+        # Read-only is a *request*, not a constant: `open(read_only=False)` is
+        # used by fixtures and maintenance tooling, and hardcoding the session
+        # flag made those connections read-only too (PostgreSQL then refused
+        # even DROP TABLE IF EXISTS).
+        if self.spec.kind == "postgresql" and read_only:
             connect_args["options"] = "-c default_transaction_read_only=on"
         engine = create_engine(self.spec.url, connect_args=connect_args)
         con = Connection(
@@ -437,6 +441,8 @@ class DataSource:
             sql_schema=self.spec.schema or "public",
             mysql_schema=self.spec.schema,
         )
+        if self.spec.kind == "mysql" and read_only:
+            con.enforce_read_only()
         if self.spec.kind == "postgresql" and self.spec.schema:
             validate_identifier(self.spec.schema, "schema")
             con.query_count += 1
