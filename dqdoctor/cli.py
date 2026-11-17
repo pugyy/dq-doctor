@@ -152,7 +152,7 @@ def doctor() -> None:
     template = Path(__file__).parent / "templates" / "report.html"
     checks.append(("Report template", template.exists(),
                    "OK" if template.exists() else "MISSING", False))
-    for name, extra in (("sqlalchemy", "sql"), ("psycopg2", "sql"),
+    for name, extra in (("sqlalchemy", "sql"), ("psycopg", "sql"),
                         ("pymysql", "sql"), ("openai", "llm"),
                         ("flask", "dashboard"), ("mcp", "mcp")):
         try:

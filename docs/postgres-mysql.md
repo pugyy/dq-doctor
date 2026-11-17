@@ -4,7 +4,9 @@
 pip install "dq-doctor[sql]"
 ```
 
-The `[sql]` extra installs SQLAlchemy, psycopg2-binary and PyMySQL.
+The `[sql]` extra installs SQLAlchemy, `psycopg[binary]` (psycopg3) and
+PyMySQL. PostgreSQL URLs are normalized to `postgresql+psycopg://` so the
+driver resolves identically on SQLAlchemy 2.0 and 2.1.
 
 ## Connect
 
@@ -26,8 +28,9 @@ dqdoctor check --db "postgresql://user:pass@host/db?schema=analytics" ...
 - `information_schema` metadata is filtered to that schema;
 - declared FK metadata is read from the same schema.
 
-For MySQL, `?schema=other_db` selects another database (folded into the
-URL database segment).
+For MySQL, `?schema=other_db` **replaces** the database segment of the URL
+(`mysql://h/db?schema=other` connects to database `other`); MySQL has no
+separate schema concept, and metadata queries filter by `DATABASE()`.
 
 ## What runs on SQL backends
 

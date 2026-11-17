@@ -115,7 +115,10 @@ jobs:
         env:
           DQTEST_PG: postgresql://dqtest:dqtest@127.0.0.1:5432/dqtest
           DQTEST_MYSQL: mysql://dqtest:dqtest@127.0.0.1:3306/dqtest
-        run: pytest tests/test_backends.py -v
+          DQTEST_MYSQL_ADMIN: mysql://root:dqtest@127.0.0.1:3306/mysql
+          # live tests fail (not skip) when a service is unreachable
+          DQ_LIVE_REQUIRED: "1"
+        run: pytest tests/test_backends.py tests/test_live_backends.py -v
 
   build:
     name: build wheel + sdist and install from wheel

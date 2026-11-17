@@ -41,9 +41,10 @@ covered, as of 1.0.0.
 - **CI has not run**: the workflow targets all branches now, but the `v1.0`
   branch has never been pushed.
 - **Live servers used for verification were local**: MySQL 9.5.0 and
-  embedded PostgreSQL 16.2 (pgserver) on loopback. Non-default MySQL
-  schemas via `?schema=` are exercised only in a skipped case because the
-  local instance has a single database.
+  embedded PostgreSQL 16.2 (pgserver) on loopback. MySQL `?schema=` is
+  verified against a real second database (`dqtest2`); the test needs
+  `DQTEST_MYSQL_ADMIN` to create it and skips with an explicit message
+  otherwise.
 - **dbt parse/test**: exporter emits dbt >= 1.8 `data_tests` with numeric
   literal ranges; no dbt project parsed it. `dbt_utils` is required for
   range expressions.

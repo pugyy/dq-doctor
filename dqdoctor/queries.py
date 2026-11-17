@@ -26,7 +26,9 @@ def list_tables(con) -> list[str]:
     from sqlalchemy import text
 
     con.query_count += 1
-    if con.backend == "mysql" and con.mysql_schema is None:
+    if con.backend == "mysql":
+        # MySQL has no separate schema: ?schema= selects the database in the
+        # URL, so the current database is always the right filter.
         rows = con._raw.execute(
             text(
                 "SELECT table_name FROM information_schema.tables "
@@ -67,7 +69,7 @@ def table_columns(con, table: str) -> list[dict]:
     else:
         from sqlalchemy import text
 
-        if con.backend == "mysql" and con.mysql_schema is None:
+        if con.backend == "mysql":
             result = con._raw.execute(
                 text(
                     "SELECT column_name, data_type FROM information_schema.columns "

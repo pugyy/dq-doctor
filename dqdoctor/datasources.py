@@ -139,12 +139,20 @@ def redact_url(url: str) -> str:
 
 
 def _sql_url(spec: str) -> tuple[str, str, str | None]:
-    """Normalize a SQL URL to (kind, sqlalchemy_url, schema)."""
+    """Normalize a SQL URL to (kind, sqlalchemy_url, schema).
+
+    - PostgreSQL: the driver is pinned to ``postgresql+psycopg://`` so the
+      URL resolves to psycopg3 on SQLAlchemy 2.0 *and* 2.1 (a bare
+      ``postgresql://`` picks whichever driver the installed SQLAlchemy
+      generation defaults to, which broke one-version-or-the-other).
+    - MySQL ``?schema=`` **replaces** the database segment: appending
+      produced ``dqtest/other``, which MySQL rejects with access denied.
+    """
     parts = urlsplit(spec)
     scheme = parts.scheme.lower()
     if scheme in ("postgres", "postgresql"):
         kind = "postgresql"
-        url = spec.replace(f"{parts.scheme}://", "postgresql://", 1)
+        url = spec.replace(f"{parts.scheme}://", "postgresql+psycopg://", 1)
     elif scheme in ("mysql", "mysql+pymysql"):
         kind = "mysql"
         url = spec.replace(f"{scheme}://", "mysql+pymysql://", 1)
@@ -161,8 +169,9 @@ def _sql_url(spec: str) -> tuple[str, str, str | None]:
         schema = match.group(1)
         cleaned = re.sub(r"(?:^|&)schema=[^&]*", "", query).strip("&")
         base = url.rsplit("?", 1)[0]
-        if kind == "mysql":  # fold schema into the URL database segment
-            base = base.rstrip("/") + "/" + schema
+        if kind == "mysql":  # schema == database on MySQL: replace it
+            head = base.rsplit("/", 1)[0] if "/" in base.rsplit("://", 1)[-1] else base
+            base = head.rstrip("/") + "/" + schema
             schema = None
         url = f"{base}?{cleaned}" if cleaned else base
     return kind, url, schema
@@ -239,18 +248,17 @@ class Connection:
 
     Attributes used by ``dqdoctor.queries``: ``backend`` (duckdb /
     postgresql / mysql), ``source_kind`` (duckdb / files / postgresql /
-    mysql), ``sql_schema`` (schema for postgresql), ``mysql_schema``
-    (explicit database for mysql, None = current database), ``_raw`` (the
-    driver connection) and ``query_count`` (instrumentation).
+    mysql), ``sql_schema`` (schema for postgresql; MySQL has no separate
+    schema - ``?schema=`` selects the database in the URL itself), ``_raw``
+    (the driver connection) and ``query_count`` (instrumentation).
     """
 
     def __init__(self, raw: Any, backend: str, source_kind: str | None = None,
-                 sql_schema: str = "public", mysql_schema: str | None = None):
+                 sql_schema: str = "public"):
         self._raw = raw
         self.backend = backend
         self.source_kind = source_kind or backend
         self.sql_schema = sql_schema
-        self.mysql_schema = mysql_schema
         self.query_count = 0
 
     # -- Identifiers -------------------------------------------------------
@@ -445,7 +453,6 @@ class DataSource:
             engine.connect(),
             self.spec.kind,
             sql_schema=self.spec.schema or "public",
-            mysql_schema=self.spec.schema,
         )
         if self.spec.kind == "mysql" and read_only:
             con.enforce_read_only()

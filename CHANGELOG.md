@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.0.5
+
+Fifth audit pass. The 1.0.4 fixes held; two real bugs were hiding behind a
+skip and a version-range gap.
+
+### Fixed
+
+- **MySQL `?schema=` appended to the database instead of replacing it**
+  (`mysql://h/dqtest?schema=other` connected to database `dqtest/other`,
+  which MySQL rejects). `?schema=` now replaces the database segment; the
+  fix is verified against a real second database (`dqtest2`), covering
+  table listing and declared-FK discovery on the selected database. The
+  `mysql_schema` bound-parameter branches that this made unreachable are
+  removed (`queries.py`, `fkdeclared.py`, `Connection`): MySQL always
+  filters by `DATABASE()`.
+- **`postgresql://` now normalizes to `postgresql+psycopg://`.** A bare URL
+  resolves to psycopg3 on SQLAlchemy 2.1 but psycopg2 on 2.0, so
+  `[sql]`-only installs broke on one version or the other. The explicit
+  driver works on both; verified from clean venvs with SQLAlchemy 2.0.36
+  and 2.1.9 against live PostgreSQL 16 and MySQL 9.
+- `dqdoctor doctor` checks `psycopg` (the driver `[sql]` ships) instead of
+  `psycopg2`; `docs/postgres-mysql.md` updated to match.
+
+### CI
+
+`tests/test_live_backends.py` joined the integration job with
+`DQ_LIVE_REQUIRED=1` and `DQTEST_MYSQL_ADMIN`, so unreachable services fail
+instead of skipping and the second-database case has what it needs.
+
 ## v1.0.4
 
 Fourth audit pass: four regressions found in 1.0.3, all reproduced then fixed.

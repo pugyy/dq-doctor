@@ -77,19 +77,64 @@ def test_mysql_declared_fk_uses_current_database():
     assert matching[0].to_columns == ["id"]
 
 
-def test_mysql_declared_fk_with_explicit_schema():
-    """The explicit-database form uses the bound parameter path."""
-    ds = _live("DQTEST_MYSQL", MYSQL_URL + "?schema=dqtest")
-    con = ds.open(read_only=False)
+def test_mysql_schema_selects_that_database():
+    """``?schema=`` must REPLACE the database, not append to it.
+
+    A bug appended (``dqtest/other``), which MySQL rejects with access
+    denied; the test connects through a real second database to prove the
+    replacement end to end. Creating that database needs an admin URL
+    (``DQTEST_MYSQL_ADMIN``); CI provides one.
+    """
+    admin_url = os.environ.get("DQTEST_MYSQL_ADMIN")
+    if not admin_url:
+        pytest.skip("needs DQTEST_MYSQL_ADMIN to create a second database")
+    _live("DQTEST_MYSQL", MYSQL_URL)
+
+    from dqdoctor.datasources import resolve as _resolve
+
+    admin = _resolve(admin_url)
+    con = admin.open(read_only=False)
     try:
+        con._raw.exec_driver_sql("CREATE DATABASE IF NOT EXISTS dqtest2")
+        # grant the regular user access (idempotent); host bound so pymysql
+        # does not treat '%' as a format specifier
+        from sqlalchemy import text
+
+        con._raw.execute(
+            text("GRANT ALL ON dqtest2.* TO :user@:host"),
+            {"user": "dqtest", "host": "%"},
+        )
+        con._raw.exec_driver_sql("USE dqtest2")
+        con._raw.exec_driver_sql("DROP TABLE IF EXISTS fk_child2")
+        con._raw.exec_driver_sql("DROP TABLE IF EXISTS fk_parent2")
+        con._raw.exec_driver_sql("CREATE TABLE fk_parent2 (id INTEGER PRIMARY KEY)")
         con._raw.exec_driver_sql(
-            "CREATE TABLE IF NOT EXISTS fk_child2 (id INTEGER PRIMARY KEY, "
-            "parent_id INTEGER, "
-            "FOREIGN KEY (parent_id) REFERENCES fk_parent(id))"
+            "CREATE TABLE fk_child2 (id INTEGER PRIMARY KEY, parent_id INTEGER, "
+            "FOREIGN KEY (parent_id) REFERENCES fk_parent2(id))"
         )
         con._raw.commit()
     finally:
         con.close()
+
+    # the schema query parameter must land on dqtest2, not dqtest/dqtest2
+    ds = resolve(MYSQL_URL + "?schema=dqtest2")
+    assert ds.spec.url.endswith("/dqtest2"), ds.spec.url
+
+    from dqdoctor.fkdeclared import declared_foreign_keys
+
+    con = ds.open()
+    try:
+        tables = [
+            r[0]
+            for r in con._raw.exec_driver_sql("SHOW TABLES").fetchall()
+        ]
+        relationships = declared_foreign_keys(con)
+    finally:
+        con.close()
+    assert "fk_child2" in tables, tables  # connected to dqtest2, not dqtest
+    matching = [r for r in relationships if r.from_table == "fk_child2"]
+    assert matching, "declared FK not found in the selected database"
+    assert matching[0].to_table == "fk_parent2"
 
     from dqdoctor.fkdeclared import declared_foreign_keys
 
