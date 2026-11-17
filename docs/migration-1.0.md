@@ -168,8 +168,8 @@ New in 1.0:
    dqdoctor check --db prod_alias --all-tables --rules contract.yml \
      --baseline baseline.json --ci
    ```
-   Known failures are exempted; the same rule failing *more* (or a new FK
-   orphan) still trips the gate.
+   Baseline v2 matches the rule definition and compares failure or orphan
+   counts. Re-capture a v1 baseline from a reviewed batch before reusing it.
 
 ## Exit codes
 

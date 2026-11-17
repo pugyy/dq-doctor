@@ -177,6 +177,8 @@ def doctor() -> None:
     console.print(table)
     console.print("[green]All core checks passed.[/green]" if core_ok
                   else "[red]Some core checks failed.[/red]")
+    if not core_ok:
+        raise typer.Exit(EXIT_ERROR)
 
 
 @app.command()
@@ -346,16 +348,7 @@ def check(
         if base is not None and not isinstance(base, baseline_mod.Baseline):
             _fail(f"baseline: unexpected content in {baseline}")
 
-    tables_wanted = None
-    if all_tables:
-        try:
-            tables_wanted = ds.tables()
-        except DatasourceError as exc:
-            _fail(str(exc))
-        if not tables_wanted:
-            console.print("[yellow]No tables found.[/yellow]")
-            raise typer.Exit(EXIT_OK)
-    elif not table:
+    if not all_tables and not table:
         _fail("--table is required (or use --all-tables).")
 
     policy = GatePolicy(max_failures=max_failures, fail_on=fail_on,
@@ -363,7 +356,7 @@ def check(
     engine = CheckEngine(ds, sql_timeout=sql_timeout)
     try:
         outcome = engine.run(
-            tables=tables_wanted or ([table] if table else None),
+            tables=None if all_tables else [table],
             contract=contract, baseline=base,
             explore=contract is None,
             sample_rows=sample_rows, policy=policy,
@@ -416,14 +409,22 @@ def _multi_or_single(out: Path, outcome: CheckOutcome, writer, suffix: str) -> P
     if len(outcome.tables) == 1:
         return writer(outcome, out)
     written = None
+    used_names: set[str] = set()
     for table in outcome.tables:
+        target = _multi_out(out, table.table_name)
+        stem = target.stem
+        sequence = 2
+        while target.name.casefold() in used_names:
+            target = target.with_name(f"{stem}_{sequence}{out.suffix}")
+            sequence += 1
+        used_names.add(target.name.casefold())
         sub = CheckOutcome(
             dqdoctor_version=outcome.dqdoctor_version,
             started_at=outcome.started_at, finished_at=outcome.finished_at,
             datasource=outcome.datasource, tables=[table],
             fk_issues=outcome.fk_issues, gate_policy=outcome.gate_policy,
         )
-        written = writer(sub, _multi_out(out, table.table_name))
+        written = writer(sub, target)
     return written or out
 
 
@@ -536,13 +537,18 @@ def baseline(
         except ContractError as exc:
             _fail(str(exc))
     engine = CheckEngine(ds)
-    outcome = engine.run(tables=None if all_tables else None, contract=contract,
-                         explore=contract is None)
+    try:
+        outcome = engine.run(contract=contract, explore=contract is None)
+    except DatasourceError as exc:
+        _fail(str(exc))
+    if decide_exit(outcome, None) == EXIT_ERROR:
+        _render_outcome(outcome, contract_mode=contract is not None)
+        _fail("Cannot capture a baseline for a run with execution errors.")
     base = baseline_mod.capture(outcome, datetime.now(UTC).isoformat())
     baseline_mod.save_baseline(base, out)
     console.print(f"[green]Baseline captured:[/green] {out} "
                   f"({len(base.entries)} known rule failures, "
-                  f"{len(base.fk_pairs)} failing FK pairs)")
+                  f"{len(base.fk_entries)} failing FK pairs)")
 
 
 # ---------------------------------------------------------------------------

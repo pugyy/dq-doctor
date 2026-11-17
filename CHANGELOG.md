@@ -1,24 +1,132 @@
 # Changelog
 
-## v1.0.7
+## v1.0.7 — 2026-11-17
 
-Seventh audit pass: the fast-fail timeout only existed in test URLs.
+The seventh audit round closed the last release blockers. Most of them were
+**false passes**: scenarios where the tool reported success even though it had
+not actually checked what the contract asked for. This release also makes the
+exported artifacts consumable by the real tools they target.
 
-### Fixed
+### Gate correctness — no more silent passes
 
-- **`DataSource.open` had no default connect timeout.** An unreachable
-  host hung until the OS TCP limit (measured: 130s on Windows; the audit
-  saw >300s), stalling CI instead of failing fast. SQL backends now default
-  to ``connect_timeout=10`` via ``connect_args``; ``DQ_CONNECT_TIMEOUT``
-  overrides the default, and an explicit ``?connect_timeout=`` in the URL
-  wins over both (passing both to the DBAPI would collide). Verified:
-  dead address fails in 10.1s with the default, 1s with the URL override,
-  and live connections are unaffected.
-- The dead-address test no longer smuggles ``?connect_timeout=2`` into its
-  URLs - it now proves the *product* default, plus dedicated cases for the
-  URL and env overrides.
+- **`accepted_values` with `NULL` in the whitelist.** A contract such as
+  `values: [paid, shipped, null]` used to let an illegal `cancelled` value
+  through because `NULL` was treated as a wildcard. `NULL` entries are now
+  removed from the comparison set, and a set with no non-NULL value is an
+  explicit execution error.
+- **SQL rules returning multiple rows.** The scalar contract used to take the
+  first row and discard the rest. It now fetches up to two rows and raises an
+  execution error when the query is not exactly one row × one column. The
+  same applies to zero rows and to multi-column results.
+- **`--all-tables` ignored contract tables that no longer exist.** A contract
+  naming a dropped table could pass because the table was never profiled. The
+  engine now unions the database table list with the contract table list and
+  reports the missing table as an execution error (exit `2`).
+- **File-datasource SQL rules were skipped.** They are not executable under
+  the engine-level DuckDB restriction; returning `SKIP` made an enabled rule
+  look harmless. They now return `ERROR` with a remediation message, so CI
+  cannot green-light a rule that never ran.
+- **Report filename collisions.** `x y`, `x-y` and `x_y` all sanitized to the
+  same stem; per-table reports now get a deterministic numeric suffix instead
+  of overwriting each other.
+- **`doctor` exit code.** A core dependency failure now exits `2` instead of
+  returning success. `check --config missing.yml` also exits `2` with a clear
+  diagnostic.
 
-211 tests, 84.2% coverage.
+### Referential integrity and baselines
+
+- **Composite / cross-schema foreign keys.** PostgreSQL metadata is read from
+  `pg_constraint` + `unnest(conkey, confkey) WITH ORDINALITY`, preserving
+  column order; the target schema is carried through to the orphan query.
+  The previous `information_schema.constraint_column_usage` join paired
+  columns by constraint, not by position, and dropped cross-schema targets.
+- **Baseline v2.** Entries now store a hash of the rule definition
+  (`type`, `column`, `params`, `severity`) and the observed failure count.
+  A changed rule, a new failure on the same rule, or an increase in orphan
+  rows trips the gate again. FK exemptions are count-aware.
+- **Baseline capture refuses error runs.** `baseline capture` will not record
+  a run that had execution errors, so an incomplete check cannot become the
+  new definition of "known".
+- **Migration:** v1 baselines are rejected with a clear message. Re-create
+  them with `dqdoctor baseline capture ...`.
+
+### Connections and credentials
+
+- **Default connect timeout.** SQL backends now use `connect_timeout=10` by
+  default. Precedence is: explicit `?connect_timeout=N` in the URL →
+  `DQ_CONNECT_TIMEOUT` → 10. Invalid or non-positive values are a
+  configuration error, not a silent fallback. This fixes the >300s hang on an
+  unreachable host and makes CI fail fast.
+- **Connection failures exit `2`.** `DataSource.open()` wraps SQLAlchemy
+  connection errors in `DatasourceError`; the CLI reports a redacted
+  datasource and exits `2` instead of printing a traceback.
+- **Migration redacts credentials.** `dqdoctor migrate` no longer writes a
+  legacy `db: postgresql://user:pass@...` verbatim into the new contract;
+  userinfo and query secrets are masked.
+
+### SQL rule safety and output hygiene
+
+- Reject quoted file readers (`pg_catalog."pg_read_file"`), `LOAD_FILE`,
+  `INTO OUTFILE`, `INTO DUMPFILE` and MySQL executable comments
+  (`/*! ... */`).
+- Driver errors and SQL-rule errors no longer include the query text or
+  returned values, so a failed rule cannot leak a PII sample into CI logs.
+- The scalar result contract is enforced in one place for DuckDB, PostgreSQL
+  and MySQL (`_one_scalar`), including the "exactly one column" check.
+
+### MCP and exporters
+
+- **MCP:** the server now uses registered config aliases for `datasource` and
+  honors `table` selection; free-form filesystem paths and URLs are rejected.
+  The extra is pinned to `mcp>=1.12,<2` because the FastMCP API used here is
+  the 1.x API; SDK 2.x is not supported yet. The stdio round-trip is tested
+  with the official client.
+- **dbt:** export targets dbt >= 1.10.5 `data_tests` with nested `arguments`;
+  range expressions are emitted relative to the column and no longer repeat
+  the column name; columns without tests are omitted.
+- **Great Expectations:** suites now load directly through the GX 1.x
+  `ExpectationSuite(**entry)` constructor; exact row counts map to
+  `expect_table_row_count_to_equal`, and unmapped rules are listed in
+  `meta.unmapped_rule_ids`.
+- **SodaCL / Deequ / Markdown:** export tests continue to cover the documented
+  shapes; SodaCL uses the `valid values` block.
+
+### Verification
+
+- `231` tests passed (MCP and dashboard extras installed), `~84.7%` statement
+  coverage, Ruff clean.
+- Real PostgreSQL 16.2 and MySQL 9.5 live-backend suites: `8/8` cross-backend
+  cases and `6/6` live cases, including the second-database `?schema=` path.
+- Python CI matrix: 3.12, 3.13, 3.14.
+- Real toolchain checks: dbt (19 checks), SodaCL (21 checks), Great
+  Expectations 1.25 suite load/registration.
+- Wheel/sdist rebuilt from the fixed tree and installed in a clean venv;
+  `doctor`, DuckDB demo → contract → gate, and live PostgreSQL/MySQL
+  connections smoke-tested.
+
+### Breaking changes and upgrade
+
+- **Baseline format is v2.** Re-run `dqdoctor baseline capture`.
+- **File-datasource SQL rules now fail** instead of being skipped. Disable
+  them or replace them with `regex` / `row_count` / `cross_field` /
+  `range` / `accepted_values`.
+- **PostgreSQL URLs** are normalized to `postgresql+psycopg://`; the `[sql]`
+  extra installs `psycopg[binary]` (psycopg3), not psycopg2.
+- **MySQL `?schema=`** replaces the database segment (`.../dqtest?schema=other`
+  connects to `other`); it does not append to the path.
+- **dbt export** requires dbt >= 1.10.5 for nested `arguments`.
+- Upgrade: `pip install -U dq-doctor`, re-capture baselines, and re-run
+  `dqdoctor export` for dbt/GX/Soda artifacts.
+
+### Known limits
+
+- File datasources cannot run SQL rules (DuckDB views re-read the file on each
+  query, so the engine-level external-access block cannot apply).
+- Heuristic FKs are name-based candidates; declared keys always win.
+- `freshness` treats naive timestamps as local wall-clock time.
+- PII detection is a triage aid, not a compliance tool.
+- CI is the final gate; run the included workflow on your fork before
+  publishing artifacts.
 
 ## v1.0.6
 

@@ -42,21 +42,16 @@ covered, as of 1.0.0.
   branch has never been pushed.
 - **Live servers used for verification were local**: MySQL 9.5.0 and
   embedded PostgreSQL 16.2 (pgserver) on loopback, selected through the
-  same `DQTEST_*` variables CI injects (pinned by subprocess tests in
-  `tests/test_url_roundtrip.py`: dead addresses fail under
-  `DQ_LIVE_REQUIRED`, env-pointed addresses pass). MySQL `?schema=` is
+  same `DQTEST_*` variables CI injects. Missing or unreachable servers
+  fail under `DQ_LIVE_REQUIRED=1`. MySQL `?schema=` is
   verified against a real second database (`dqtest2`) created via
   `DQTEST_MYSQL_ADMIN`.
-- **dbt parse/test**: exporter emits dbt >= 1.8 `data_tests` with numeric
-  literal ranges; no dbt project parsed it. `dbt_utils` is required for
-  range expressions.
-- **GX 1.x loader**: suite JSON follows the 1.x shape; not fed through a
-  real GX install.
-- **SodaCL scan**: `valid values:` follows the documented syntax; no Soda
-  CLI run validated it.
-- **MCP stdio client**: server uses the official `mcp` SDK; no full client
-  round-trip was executed (SDK not installed here).
-- **Python 3.14 / 3.15**: local run was 3.12 only.
+- **Python 3.15** is outside the current test matrix.
+
+The demo contract was checked with dbt Core 1.12.7 and dbt-utils 1.4.1,
+loaded with GX 1.25.0, and scanned with Soda Core 3.5.6 on DuckDB 1.0.0.
+Soda's DuckDB adapter pins an older engine, so use a database file
+compatible with that engine when scanning.
 
 ## Known approximations
 
@@ -130,20 +125,17 @@ re-read the file on each query, so ``enable_external_access`` cannot be
 disabled there - it would block the datasource's own tables. A keyword
 policy cannot enumerate every read shape (``JOIN 'x.parquet'``, comma
 joins, ``parquet_metadata(...)``), so **SQL rules are refused outright on
-file datasources**: ``check_sql`` returns a SKIP explaining that regex /
+file datasources**: an enabled SQL rule produces an error explaining that regex /
 row_count / cross_field / range / accepted_values should be used instead.
 If you need SQL rules over files, materialize the file into a DuckDB
 database first (``dqdoctor`` then sees it as a normal table).
 
 **Residual risk.** SQL sessions are also read-only (PostgreSQL
 ``default_transaction_read_only``, MySQL ``SET SESSION TRANSACTION READ
-ONLY``, DuckDB file read-only). MySQL's statement only covers the *next*
-transaction, so a driver that has already begun a transaction keeps write
-capability within it - the shape policy is the guard on that path. An
-operator can still write an expensive read-only query; ``--sql-timeout`` is
-the mitigation. The policy is a shape guard, not a full SQL parser; an AST
-whitelist (e.g. sqlglot) is the next step if untrusted rule authors are in
-scope.
+ONLY``, DuckDB file read-only). MySQL applies the session setting to
+subsequent transactions. Use a database account with read permissions and
+reserve custom SQL rules for trusted contract authors. ``--sql-timeout``
+bounds supported custom SQL queries.
 
 ### Credentials
 

@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from dqdoctor.fileviews import register_file_views
 
@@ -116,27 +116,19 @@ def redact_url(url: str) -> str:
         return "<invalid-url>"
 
     query_pairs = parse_qsl(parts.query, keep_blank_values=True) if parts.query else []
-    redacted_query = "&".join(
-        f"{key}=***" if _is_secret_query_key(key) else f"{key}={value}"
+    redacted_query = urlencode([
+        (key, "***" if _is_secret_query_key(key) else value)
         for key, value in query_pairs
-    )
+    ], safe="*")
     has_secret_query = any(_is_secret_query_key(k) for k, _ in query_pairs)
     if parts.password is None and not has_secret_query:
         return url
 
-    host = parts.hostname or ""
-    if parts.port:
-        host = f"{host}:{parts.port}"
-    if parts.username and parts.password is not None:
-        userinfo = f"{parts.username}:***@"
-    elif parts.username:
-        userinfo = f"{parts.username}@"
-    elif parts.password is not None:
-        userinfo = "***@"
-    else:
-        userinfo = ""
-    base = f"{parts.scheme}://{userinfo}{host}{parts.path}"
-    return f"{base}?{redacted_query}" if redacted_query else base
+    netloc = parts.netloc
+    if parts.password is not None:
+        username = parts.username or ""
+        netloc = f"{username}:***@{parts.netloc.rpartition('@')[2]}"
+    return urlunsplit((parts.scheme, netloc, parts.path, redacted_query, ""))
 
 
 def _sql_url(spec: str) -> tuple[str, str, str | None]:
@@ -186,7 +178,10 @@ def parse_spec(spec: str, base_dir: Path | None = None) -> ConnectionSpec:
     if not spec:
         raise DatasourceError("Empty datasource spec.")
     if "://" in spec:
-        kind, url, schema = _sql_url(spec)
+        try:
+            kind, url, schema = _sql_url(spec)
+        except ValueError as exc:
+            raise DatasourceError("Invalid SQL datasource URL.") from exc
         return ConnectionSpec(
             kind=kind, original=spec, display=redact_url(spec), url=url, schema=schema
         )
@@ -227,12 +222,21 @@ class Registry:
     default: str | None = None
 
 
-def load_registry(path: Path) -> Registry:
+def load_registry(path: Path, *, required: bool = False) -> Registry:
     import yaml
 
     if not path.exists():
+        if required:
+            raise DatasourceError(f"Config file not found: {path}")
         return Registry()
-    data = yaml.safe_load(path.read_text(encoding="utf-8-sig")) or {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        raise DatasourceError(f"Could not read config file: {path} ({type(exc).__name__})") from exc
+    if data is None:
+        return Registry()
+    if not isinstance(data, dict):
+        raise DatasourceError(f"Config file must contain a mapping: {path}")
     datasources = data.get("datasources") or {}
     if not isinstance(datasources, dict):
         raise DatasourceError("'datasources' in config must be a name -> spec mapping.")
@@ -443,6 +447,8 @@ class DataSource:
             return con
 
         from sqlalchemy import create_engine
+        from sqlalchemy.engine import make_url
+        from sqlalchemy.exc import SQLAlchemyError
 
         connect_args: dict[str, Any] = {}
         # Read-only is a *request*, not a constant: `open(read_only=False)` is
@@ -457,24 +463,45 @@ class DataSource:
         # accept ``connect_timeout``. An explicit ``?connect_timeout=`` in the
         # URL wins (passing both would collide in the DBAPI call), and
         # ``DQ_CONNECT_TIMEOUT`` overrides the default.
-        if "connect_timeout" not in (urlsplit(self.spec.original).query or ""):
-            connect_args["connect_timeout"] = int(
-                os.environ.get("DQ_CONNECT_TIMEOUT", "10")
-            )
-        engine = create_engine(self.spec.url, connect_args=connect_args)
-        con = Connection(
-            engine.connect(),
-            self.spec.kind,
-            sql_schema=self.spec.schema or "public",
-        )
-        if self.spec.kind == "mysql" and read_only:
-            con.enforce_read_only()
         if self.spec.kind == "postgresql" and self.spec.schema:
             validate_identifier(self.spec.schema, "schema")
-            con.query_count += 1
-            con._raw.exec_driver_sql(
-                "SELECT set_config('search_path', %s, false)", (self.spec.schema,)
-            )
+        try:
+            sql_url = make_url(self.spec.url)
+        except (SQLAlchemyError, ValueError) as exc:
+            raise DatasourceError("Invalid SQL datasource URL.") from exc
+        url_timeout = sql_url.query.get("connect_timeout")
+        timeout = url_timeout if url_timeout is not None else os.getenv("DQ_CONNECT_TIMEOUT", "10")
+        try:
+            seconds = int(timeout)
+            if seconds <= 0:
+                raise ValueError
+        except (TypeError, ValueError) as exc:
+            setting = "URL connect_timeout" if url_timeout is not None else "DQ_CONNECT_TIMEOUT"
+            raise DatasourceError(f"{setting} must be a positive integer in seconds.") from exc
+        if url_timeout is None:
+            connect_args["connect_timeout"] = seconds
+        engine = create_engine(sql_url, connect_args=connect_args)
+        try:
+            raw = engine.connect()
+        except SQLAlchemyError as exc:
+            engine.dispose()
+            raise DatasourceError(
+                f"Could not connect to {self.describe()} ({type(exc).__name__})."
+            ) from exc
+        con = Connection(raw, self.spec.kind, sql_schema=self.spec.schema or "public")
+        try:
+            if self.spec.kind == "mysql" and read_only:
+                con.enforce_read_only()
+            if self.spec.kind == "postgresql" and self.spec.schema:
+                con.query_count += 1
+                con._raw.exec_driver_sql(
+                    "SELECT set_config('search_path', %s, false)", (self.spec.schema,)
+                )
+        except SQLAlchemyError as exc:
+            con.close()
+            raise DatasourceError(
+                f"Could not configure the session for {self.describe()} ({type(exc).__name__})."
+            ) from exc
         return con
 
     def tables(self) -> list[str]:
@@ -525,7 +552,10 @@ def resolve(
     An empty ``spec`` falls back to the registry's ``default`` alias, which
     is what makes `dqdoctor init` followed by `check --config` work.
     """
-    registry = load_registry(config_path if config_path else Path(".dqdoctor.yml"))
+    registry = load_registry(
+        config_path if config_path is not None else Path(".dqdoctor.yml"),
+        required=config_path is not None,
+    )
     if not spec and registry.default:
         spec = registry.default
     resolved = registry.datasources.get(spec, spec)

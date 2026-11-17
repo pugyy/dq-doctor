@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("dqdoctor.mcp")
 logger.addHandler(logging.StreamHandler(sys.stderr))
@@ -21,11 +22,16 @@ def _config_path(config: Path | None) -> Path:
 
 
 def _resolve(name: str, config: Path | None):
-    from dqdoctor.datasources import DataSource, load_registry, parse_spec
+    from dqdoctor.datasources import DataSource, DatasourceError, load_registry, parse_spec
 
-    registry = load_registry(_config_path(config))
-    spec = registry.datasources.get(name, name)
-    return DataSource(parse_spec(spec))
+    path = _config_path(config)
+    registry = load_registry(path)
+    spec = registry.datasources.get(name)
+    if spec is None:
+        raise DatasourceError(
+            "Unknown datasource alias. Use list_datasets to find available aliases."
+        )
+    return DataSource(parse_spec(spec, base_dir=path.parent))
 
 
 def serve(config: Path | None = None) -> None:
@@ -39,7 +45,7 @@ def serve(config: Path | None = None) -> None:
     mcp = FastMCP("dq-doctor")
 
     @mcp.tool()
-    def list_datasets() -> dict:
+    def list_datasets() -> dict[str, Any]:
         """List registered datasource aliases from the startup config."""
         from dqdoctor.datasources import load_registry
 
@@ -50,7 +56,7 @@ def serve(config: Path | None = None) -> None:
         }
 
     @mcp.tool()
-    def profile_table(datasource: str, table: str) -> dict:
+    def profile_table(datasource: str, table: str) -> dict[str, Any]:
         """Profile one table: row count, per-column stats, PII evidence.
 
         Raw sample values are never returned; text min/max are redacted.
@@ -72,9 +78,9 @@ def serve(config: Path | None = None) -> None:
     def run_check(
         datasource: str,
         table: str | None = None,
-        all_tables: bool = True,
+        all_tables: bool | None = None,
         rules_path: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Run a check and return the full JSON outcome.
 
         Without rules_path this is explore mode (suggestions only).
@@ -83,20 +89,22 @@ def serve(config: Path | None = None) -> None:
         from dqdoctor.engine import CheckEngine
         from dqdoctor.outputs import _redacted_payload
 
+        if (table and all_tables is True) or (not table and all_tables is False):
+            raise ValueError("Specify one table or request all tables.")
         ds = _resolve(datasource, config)
         contract = None
         if rules_path:
             contract = load_contract(Path(rules_path))
         engine = CheckEngine(ds)
         outcome = engine.run(
-            tables=None if all_tables else ([table] if table else None),
+            tables=[table] if table else None,
             contract=contract,
             explore=contract is None,
         )
         return _redacted_payload(outcome)
 
     @mcp.tool()
-    def get_summary(datasource: str, table: str) -> dict:
+    def get_summary(datasource: str, table: str) -> dict[str, Any]:
         """One-table summary: score, status counts, PII list."""
         from dqdoctor.engine import CheckEngine
 

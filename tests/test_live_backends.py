@@ -15,9 +15,7 @@ exists to catch. Only *connectivity* errors skip - a driver bug or an
 assertion raised during the probe fails loudly instead.
 
 Connection strings come from ``DQTEST_MYSQL`` / ``DQTEST_PG`` (the same
-variables CI injects); the defaults below are this machine's local
-instances. Hardcoding the defaults broke the first CI run - the tests
-dialled the local ports and ignored the services GitHub provides.
+variables CI injects).
 """
 from __future__ import annotations
 
@@ -28,15 +26,15 @@ from sqlalchemy.exc import OperationalError
 
 from dqdoctor.datasources import DatasourceError, resolve
 
-MYSQL_URL = os.environ.get(
-    "DQTEST_MYSQL", "mysql://dqtest:dqtest@127.0.0.1:13306/dqtest"
-)
-PG_URL = os.environ.get(
-    "DQTEST_PG", "postgresql://postgres:@127.0.0.1:3361/dqtest"
-)
+MYSQL_URL = os.environ.get("DQTEST_MYSQL")
+PG_URL = os.environ.get("DQTEST_PG")
 
 
-def _reachable_server(url_env: str, url: str):
+def _reachable_server(url_env: str, url: str | None):
+    if not url:
+        if os.environ.get("DQ_LIVE_REQUIRED"):
+            pytest.fail(f"{url_env} is required")
+        pytest.skip(f"{url_env} is unset")
     try:
         ds = resolve(url)
         con = ds.open()
@@ -178,6 +176,32 @@ def test_postgres_read_only_true_blocks_ddl():
             con._raw.exec_driver_sql("CREATE TABLE should_not_exist (v INTEGER)")
     finally:
         con._raw.rollback()
+        con.close()
+
+
+def test_postgres_composite_fk_preserves_position_and_schema():
+    from dqdoctor.fkcheck import check_relationship
+    from dqdoctor.fkdeclared import declared_foreign_keys
+
+    ds = _reachable_server("DQTEST_PG", PG_URL)
+    con = ds.open(read_only=False)
+    try:
+        for statement in (
+            "CREATE SCHEMA dq_audit_fk",
+            "CREATE TABLE dq_audit_fk.parent (a INTEGER, b INTEGER, PRIMARY KEY(a, b))",
+            "CREATE TABLE dq_audit_child (x INTEGER, y INTEGER, "
+            "CONSTRAINT dq_audit_constraint FOREIGN KEY(x, y) REFERENCES dq_audit_fk.parent(a, b))",
+            "INSERT INTO dq_audit_fk.parent VALUES (1, 2)",
+            "INSERT INTO dq_audit_child VALUES (1, 2)",
+        ):
+            con._raw.exec_driver_sql(statement)
+        relationship = next(
+            fk for fk in declared_foreign_keys(con) if fk.from_table == "dq_audit_child"
+        )
+        assert relationship.from_columns == ["x", "y"]
+        assert relationship.to_columns == ["a", "b"]
+        assert check_relationship(con, relationship).orphan_rows == 0
+    finally:
         con.close()
 
 

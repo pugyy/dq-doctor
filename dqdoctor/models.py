@@ -119,6 +119,7 @@ class RuleResult(BaseModel):
     # Baseline bookkeeping (filled by engine when a baseline is active).
     exempted: bool = False
     exempt_reason: str = ""
+    definition_hash: str = Field(default="", exclude=True)
 
     @property
     def executed(self) -> bool:

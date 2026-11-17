@@ -21,12 +21,12 @@ def build_plan(con, include_heuristic: bool = True) -> FKPlan:
     if include_heuristic:
         added = 0
         known = {
-            (r.from_table, tuple(r.from_columns), r.to_table, tuple(r.to_columns))
+            (r.from_table, tuple(r.from_columns), r.to_table, tuple(r.to_columns), r.to_schema)
             for r in relationships
         }
         for cand in heuristic_candidates(con):
             key = (cand.from_table, tuple(cand.from_columns),
-                   cand.to_table, tuple(cand.to_columns))
+                   cand.to_table, tuple(cand.to_columns), cand.to_schema)
             if key not in known:
                 relationships.append(cand)
                 added += 1
@@ -160,7 +160,10 @@ def _is_unique(con, table: str, column: str) -> bool:
 def check_relationship(con, rel: FKRelationship) -> FKIssue:
     """Count orphan rows for one relationship (single or composite key)."""
     qsrc = con.table_ref(rel.from_table)
-    qtgt = con.table_ref(rel.to_table)
+    qtgt = (
+        con.quote_qualified(rel.to_table, rel.to_schema)
+        if rel.to_schema else con.table_ref(rel.to_table)
+    )
     not_null = " AND ".join(
         "s." + con.quote_identifier(c) + " IS NOT NULL" for c in rel.from_columns
     )
@@ -189,7 +192,7 @@ def check_relationship(con, rel: FKRelationship) -> FKIssue:
     return FKIssue(
         from_table=rel.from_table,
         from_column="+".join(rel.from_columns),
-        to_table=rel.to_table,
+        to_table=f"{rel.to_schema}.{rel.to_table}" if rel.to_schema else rel.to_table,
         to_column="+".join(rel.to_columns),
         orphan_rows=orphan_row[0],
         total_rows=total_row[0],

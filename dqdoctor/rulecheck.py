@@ -117,8 +117,12 @@ def check_accepted_values(con, qt, profile, spec, clock, timeout) -> RuleResult:
         return _skip(spec, "no accepted values defined")
     # Keep the contract's native types: stringifying an integer enum makes
     # PostgreSQL reject `integer = character varying`.
-    allowed = list(allowed_raw)
+    allowed = [value for value in allowed_raw if value is not None]
     null_policy = str(spec.params.get("null_policy", "ignore"))
+    if not allowed:
+        return _error(spec, "accepted_values requires at least one non-NULL value")
+    if null_policy not in ("ignore", "fail"):
+        return _error(spec, "accepted_values null_policy must be ignore or fail")
     nonnull = col.stats_row_count - col.null_count
 
     if col.distinct_count <= 20 and col.distinct_values and null_policy == "ignore":

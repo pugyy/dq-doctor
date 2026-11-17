@@ -48,12 +48,17 @@ def test_fk_baseline_exempts_only_known_pairs(orphan_db):
     )
     outcome = engine.run(tables=["children"], explore=True)
     base = baseline_mod.capture(outcome, "now")
-    assert base.fk_pairs, "the orphan pair should be captured"
+    assert base.fk_entries, "the orphan pair should be captured"
 
     policy = GatePolicy(max_failures=0, fail_on="low")
     tolerated = engine.run(tables=["children"], explore=True, baseline=base,
                            policy=policy)
     assert decide_exit(tolerated, policy, base) == 0
+
+    with duckdb.connect(str(orphan_db)) as con:
+        con.execute("INSERT INTO children VALUES (3)")
+    deteriorated = engine.run(tables=["children"], explore=True, baseline=base, policy=policy)
+    assert decide_exit(deteriorated, policy, base) == 1
 
 
 @pytest.fixture()

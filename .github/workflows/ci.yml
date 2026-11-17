@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,sql,dashboard,mcp]"
 
       - name: Lint with ruff
         run: ruff check dqdoctor/ tests/
@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           dqdoctor --version
-          dqdoctor doctor || true
+          dqdoctor doctor
           dqdoctor demo --dirty --output smoke.duckdb
           dqdoctor tables --db smoke.duckdb
           dqdoctor rules-init --db smoke.duckdb --all-tables --out c.yml
@@ -118,7 +118,7 @@ jobs:
           DQTEST_MYSQL_ADMIN: mysql://root:dqtest@127.0.0.1:3306/mysql
           # live tests fail (not skip) when a service is unreachable
           DQ_LIVE_REQUIRED: "1"
-        run: pytest tests/test_backends.py tests/test_live_backends.py -v
+        run: pytest tests/test_backends.py tests/test_live_backends.py -v --no-cov
 
   build:
     name: build wheel + sdist and install from wheel

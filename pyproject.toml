@@ -77,7 +77,7 @@ dashboard = [
     "flask>=3.0",
 ]
 mcp = [
-    "mcp>=1.2",
+    "mcp>=1.12,<2",
 ]
 
 [tool.hatch.build.targets.wheel]

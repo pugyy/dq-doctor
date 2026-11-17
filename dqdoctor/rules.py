@@ -75,7 +75,14 @@ def validate_spec(spec: dict, index: int, table: str = "") -> dict:
     severity = str(spec.get("severity") or "medium")
     if severity not in ("high", "medium", "low"):
         raise ValueError(f"Rule '{rule_id}': severity must be high/medium/low")
-    params = dict(spec.get("params") or {})
+    params = spec.get("params")
+    if params is None:
+        params = {}
+    if not isinstance(params, dict):
+        raise ValueError(f"Rule '{rule_id}': params must be a mapping")
+    enabled = spec.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ValueError(f"Rule '{rule_id}': enabled must be a boolean")
     return {
         "id": rule_id,
         "type": rule_type,
@@ -84,7 +91,7 @@ def validate_spec(spec: dict, index: int, table: str = "") -> dict:
         "severity": severity,
         "reason": str(spec.get("reason") or ""),
         "source": str(spec.get("source") or "contract"),
-        "enabled": bool(spec.get("enabled", True)),
+        "enabled": enabled,
     }
 
 
@@ -134,9 +141,9 @@ def parse_timestamp(value: Any) -> datetime:
         try:
             parsed = datetime.fromisoformat(text)
         except ValueError as exc:
-            raise ValueError(f"Invalid timestamp value {value!r}") from exc
+            raise ValueError("Invalid ISO-8601 timestamp") from exc
         return parsed
-    raise ValueError(f"Cannot interpret timestamp from {value!r}")
+    raise ValueError(f"Cannot interpret timestamp from {type(value).__name__}")
 
 
 def evaluate_freshness(
@@ -210,8 +217,8 @@ def evaluate_scalar(actual: Any, expect: dict[str, Any]) -> tuple[bool, str]:
     mode = str(expect.get("mode", "eq"))
     try:
         value = as_number(actual)
-    except ValueError:
-        value = actual
+    except ValueError as exc:
+        raise ValueError("SQL rule must return a numeric scalar") from exc
     if "value" not in expect and "min" not in expect and "max" not in expect:
         raise ValueError(
             "SQL rule 'expect' needs one of: value, min, max "

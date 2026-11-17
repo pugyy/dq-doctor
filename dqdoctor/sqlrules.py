@@ -48,15 +48,17 @@ def check_sql(con, spec: RuleSpec, timeout: float) -> RuleResult:
         actual = run_operator_query(con, operator_query, timeout)
     except TimeoutError as exc:
         return _error(spec, str(exc))
+    except ValueError as exc:
+        return _error(spec, str(exc))
     except Exception as exc:  # noqa: BLE001 - surfaced as ERROR results
-        return _error(spec, f"query failed: {type(exc).__name__}: {exc}")
+        return _error(spec, f"query failed: {type(exc).__name__}")
 
     from dqdoctor import rules as R
 
     try:
         ok, message = R.evaluate_scalar(actual, expect)
     except ValueError as exc:
-        return _skip(spec, str(exc))
+        return _error(spec, str(exc))
     return RuleResult(
         rule_id=spec.id,
         rule_type="sql",

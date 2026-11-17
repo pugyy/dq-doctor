@@ -40,8 +40,9 @@ def test_dbt_uses_data_tests_and_numeric_literals(sample_contract, tmp_root):
     text = dbt.export_dbt(sample_contract)
     assert "data_tests:" in text
     assert "tests:" not in text.replace("data_tests:", "")
-    assert "amount >= 0.01" in text
-    assert "amount <= 99999.99" in text
+    assert "arguments:" in text
+    assert "expression: '>= 0.01'" in text
+    assert "expression: <= 99999.99" in text
     assert "300000" not in text
     assert dbt.save(sample_contract, tmp_root / "schema.yml").exists()
 
@@ -59,10 +60,19 @@ def test_gx_suite_is_1x_shape(sample_contract):
 
     data = json.loads(gx.export_gx(sample_contract))
     suite = data["suites"][0]
-    assert suite["version"] == "1.0"
-    assert suite["type"] == "ExpectationSuite"
-    assert "expectation_suite_name" not in suite
+    assert set(suite) == {"name", "expectations", "meta"}
     assert all("type" in e and "kwargs" in e for e in suite["expectations"])
+
+
+def test_gx_exact_row_count_uses_equal_expectation(sample_contract):
+    from dqdoctor.exporters import gx
+
+    sample_contract.tables["orders"].rules.append(
+        RuleSpec(id="rows", type="row_count", params={"exact": 7})
+    )
+    suite = json.loads(gx.export_gx(sample_contract))["suites"][0]
+    assert suite["expectations"][-1]["type"] == "expect_table_row_count_to_equal"
+    assert suite["expectations"][-1]["kwargs"] == {"value": 7}
 
 
 def test_soda_uses_valid_values_block(sample_contract):

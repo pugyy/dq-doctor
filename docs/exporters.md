@@ -34,12 +34,14 @@ models:
   - name: total_amount
     data_tests:
     - dbt_utils.expression_is_true:
-        expression: total_amount >= 0.00
+        arguments:
+          expression: ">= 0.00"
     - dbt_utils.expression_is_true:
-        expression: total_amount <= 500.00
+        arguments:
+          expression: "<= 500.00"
 ```
 
-- column tests use `data_tests` (the `tests:` key is deprecated);
+- dbt 1.10.5 or later is required for nested test `arguments`;
 - numeric bounds are emitted **unquoted** even when the contract stores
   them as strings for precision;
 - `range` requires the `dbt_utils` package;
@@ -52,8 +54,6 @@ models:
 {
   "suites": [
     {
-      "version": "1.0",
-      "type": "ExpectationSuite",
       "name": "orders.suite",
       "expectations": [
         {"type": "expect_column_values_to_not_be_null",
@@ -66,8 +66,8 @@ models:
 }
 ```
 
-0.7 emitted the 0.x shape (`expectation_suite_name` / `expectation_type`),
-which GX 1.x cannot load.
+Load each entry with `gx.ExpectationSuite(**entry)`, then register the suite
+with `context.suites.add(suite)`.
 
 ## SodaCL
 

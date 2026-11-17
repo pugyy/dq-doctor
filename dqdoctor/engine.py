@@ -20,7 +20,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from dqdoctor import baseline as baseline_mod
-from dqdoctor import fkcheck, rulecheck, scoring
+from dqdoctor import fkcheck, queries, rulecheck, scoring
 from dqdoctor.contract import Contract
 from dqdoctor.datasources import DataSource
 from dqdoctor.models import (
@@ -70,10 +70,15 @@ class CheckEngine:
         try:
             if con.backend != "duckdb":
                 con.enforce_read_only()
-            table_list = tables if tables else self.datasource.tables()
-            fk_plan = fkcheck.build_plan(con, self.include_heuristic_fk)
+            if tables is None:
+                table_list = queries.list_tables(con)
+                if contract is not None and not explore:
+                    table_list.extend(t for t in contract.tables if t not in table_list)
+            else:
+                table_list = tables
             fk_issues: list[FKIssue] = []
             try:
+                fk_plan = fkcheck.build_plan(con, self.include_heuristic_fk)
                 fk_issues = fkcheck.check_all(con, fk_plan)
             except Exception as exc:  # noqa: BLE001 - surfaced, run continues
                 fk_issues = [
@@ -146,6 +151,12 @@ class CheckEngine:
                 con, table, profile, specs, self.clock, self.sql_timeout
             )
             results.extend(self._sql_rules(con, specs))
+            definitions = {spec.id: spec for spec in specs}
+            for result in results:
+                if result.status is RuleStatus.FAIL and result.rule_id in definitions:
+                    result.definition_hash = baseline_mod.definition_hash(
+                        definitions[result.rule_id]
+                    )
         else:
             specs = suggest_for_table(profile)
             results = [
@@ -210,7 +221,7 @@ class CheckEngine:
             return [
                 _RR(
                     rule_id=s.id, rule_type="sql", column=s.column,
-                    status=_RS.SKIP, severity=s.severity,
+                    status=_RS.ERROR, severity=s.severity,
                     message=(
                         "SQL rules are not supported on file datasources "
                         "(CSV/Parquet/JSON): the engine cannot block file "

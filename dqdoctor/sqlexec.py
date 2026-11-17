@@ -21,8 +21,8 @@ def run_operator_query(con, statement: str, timeout: float) -> Any:
         return _duckdb_scalar(con, statement, timeout)
     con.set_statement_timeout(timeout)
     # SQLAlchemy native driver passthrough (no ORM text() templating).
-    row = con._raw.exec_driver_sql(statement).fetchone()
-    return _one_scalar(row)
+    with con._raw.begin_nested(), con._raw.exec_driver_sql(statement) as result:
+        return _one_scalar(result.fetchmany(2))
 
 
 def _duckdb_scalar(con, statement: str, timeout: float) -> Any:
@@ -33,26 +33,29 @@ def _duckdb_scalar(con, statement: str, timeout: float) -> Any:
 
     def _worker() -> None:
         try:
-            rows = cursor.sql(statement).limit(1).fetchall()
-            outcome["row"] = rows[0] if rows else None
+            outcome["rows"] = cursor.sql(statement).limit(2).fetchall()
         except Exception as exc:  # noqa: BLE001 - transported to caller
             outcome["error"] = exc
         finally:
+            cursor.close()
             done.set()
 
     worker = threading.Thread(target=_worker, daemon=True)
     worker.start()
     if not done.wait(timeout):
-        con.interrupt()
+        cursor.interrupt()
         raise TimeoutError(f"query exceeded {timeout:.0f}s timeout")
     if "error" in outcome:
         raise outcome["error"]
-    return _one_scalar(outcome["row"])
+    return _one_scalar(outcome["rows"])
 
 
-def _one_scalar(row) -> Any:
-    if row is None:
+def _one_scalar(rows) -> Any:
+    if not rows:
         raise ValueError("query returned no rows; a scalar result is required")
+    if len(rows) != 1:
+        raise ValueError("query returned multiple rows; a single scalar is required")
+    row = rows[0]
     if len(row) != 1:
         raise ValueError(
             f"query returned {len(row)} columns; exactly one scalar column is required"

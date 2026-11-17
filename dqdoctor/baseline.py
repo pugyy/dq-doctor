@@ -9,11 +9,12 @@ are never exempted.
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from dqdoctor.models import CheckOutcome, FKIssue, RuleStatus
+from dqdoctor.models import CheckOutcome, FKIssue, RuleSpec, RuleStatus
 
 
 class BaselineEntry(BaseModel):
@@ -22,14 +23,24 @@ class BaselineEntry(BaseModel):
     rule_type: str
     column: str
     failed_count: int
-    message_hint: str = ""  # stable prefix of the failure message
+    definition_hash: str
+
+
+class FKBaselineEntry(BaseModel):
+    key: tuple[str, str, str, str]
+    orphan_rows: int
 
 
 class Baseline(BaseModel):
-    version: int = 1
+    version: int = 2
     captured_at: str = ""
     entries: list[BaselineEntry] = Field(default_factory=list)
-    fk_pairs: list[list[str]] = Field(default_factory=list)  # [from_t, from_c, to_t, to_c]
+    fk_entries: list[FKBaselineEntry] = Field(default_factory=list)
+
+
+def definition_hash(spec: RuleSpec) -> str:
+    definition = spec.model_dump(mode="json", include={"type", "column", "params", "severity"})
+    return sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
 
 
 def capture(outcome: CheckOutcome, captured_at: str) -> Baseline:
@@ -37,7 +48,7 @@ def capture(outcome: CheckOutcome, captured_at: str) -> Baseline:
     entries = []
     for table in outcome.tables:
         for r in table.rule_results:
-            if r.status is RuleStatus.FAIL and not r.exempted:
+            if r.status is RuleStatus.FAIL and not r.exempted and r.definition_hash:
                 entries.append(
                     BaselineEntry(
                         table=table.table_name,
@@ -45,20 +56,15 @@ def capture(outcome: CheckOutcome, captured_at: str) -> Baseline:
                         rule_type=r.rule_type,
                         column=r.column,
                         failed_count=max(r.failed_count, 1),
-                        message_hint=_hint(r.message),
+                        definition_hash=r.definition_hash,
                     )
                 )
-    fk_pairs = [
-        [fk.from_table, fk.from_column, fk.to_table, fk.to_column]
+    fk_entries = [
+        FKBaselineEntry(key=_fk_key(fk), orphan_rows=fk.orphan_rows)
         for fk in outcome.fk_issues
-        if fk.orphan_rows > 0
+        if fk.orphan_rows > 0 and not fk.error
     ]
-    return Baseline(version=1, captured_at=captured_at, entries=entries,
-                    fk_pairs=fk_pairs)
-
-
-def _hint(message: str) -> str:
-    return message[:60]
+    return Baseline(captured_at=captured_at, entries=entries, fk_entries=fk_entries)
 
 
 def save_baseline(baseline: Baseline, path: Path) -> Path:
@@ -74,6 +80,8 @@ def load_baseline(path: Path) -> Baseline:
     if not path.exists():
         raise FileNotFoundError(f"Baseline file not found: {path}")
     data = json.loads(path.read_text(encoding="utf-8-sig"))
+    if isinstance(data, dict) and data.get("version") != 2:
+        raise ValueError("Unsupported baseline version. Re-create it with baseline capture.")
     return Baseline.model_validate(data)
 
 
@@ -92,7 +100,7 @@ def apply_baseline(outcome: CheckOutcome, baseline: Baseline) -> None:
             if r.status is not RuleStatus.FAIL:
                 continue
             entry = index.get((table.table_name, r.rule_id))
-            if entry is None:
+            if entry is None or entry.definition_hash != r.definition_hash:
                 continue
             if r.failed_count <= entry.failed_count:
                 r.exempted = True
@@ -101,12 +109,11 @@ def apply_baseline(outcome: CheckOutcome, baseline: Baseline) -> None:
                 )
             # else: deterioration -> stays a gating failure
 
-    base_fk = {tuple(pair) for pair in baseline.fk_pairs}
-    _ = base_fk  # FK exemptions are evaluated via fk_is_exempt() at gate time
-
-
 def fk_is_exempt(fk: FKIssue, baseline: Baseline) -> bool:
-    return _fk_key(fk) in {tuple(pair) for pair in baseline.fk_pairs}
+    return not fk.error and any(
+        entry.key == _fk_key(fk) and fk.orphan_rows <= entry.orphan_rows
+        for entry in baseline.fk_entries
+    )
 
 
 def _fk_key(fk: FKIssue) -> tuple[str, str, str, str]:

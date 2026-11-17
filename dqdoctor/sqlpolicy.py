@@ -103,6 +103,8 @@ def read_only_problem(operator_query: str) -> str | None:
         return "empty query"
 
     literal_free = _strip_literals(operator_query)
+    if "/*!" in literal_free or "/*M!" in literal_free.upper():
+        return "executable comments are not allowed in SQL rules"
     # Multi-statement check runs on literal-stripped text so semicolons
     # inside string literals are not mistaken for statement separators.
     if ";" in _strip_comments(literal_free).rstrip().rstrip(";"):
@@ -116,6 +118,8 @@ def read_only_problem(operator_query: str) -> str | None:
         return "only SELECT/WITH queries are allowed in SQL rules"
 
     lowered = cleaned.lower()
+    if re.search(r"\binto\s+(?:outfile|dumpfile)\b", lowered):
+        return "writing a file is not allowed in SQL rules"
     # MySQL's REPLACE INTO is a write statement; REPLACE() is a string
     # function and must stay allowed, so it is checked as a statement form.
     if re.search(r"^\s*replace\s+into\b", lowered):
@@ -127,8 +131,9 @@ def read_only_problem(operator_query: str) -> str | None:
                 "(read-only only; this includes data-modifying CTEs)"
             )
 
+    function_text = _strip_comments(literal_free).lower()
     for fn in _IO_FUNCTIONS:
-        if re.search(r"\b" + fn + r"\s*\(", lowered):
+        if re.search(r'\b' + fn + r'\s*\(|["`]' + fn + r'["`]\s*\(', function_text):
             return (
                 f"'{fn}' is not allowed in SQL rules: file and network "
                 "readers bypass the read-only guarantee"

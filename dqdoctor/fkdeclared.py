@@ -18,6 +18,7 @@ class FKRelationship:
     to_columns: list[str]
     declared: bool = True
     confidence: float = 1.0
+    to_schema: str | None = None
 
 
 @dataclass
@@ -62,7 +63,7 @@ def _strip_schema(name: str) -> str:
 
 
 def _declared_sqla(con) -> list[FKRelationship]:
-    """information_schema FK metadata.
+    """Fetch FK metadata with each source column paired to its target column.
 
     MySQL has no separate schema (``?schema=`` selects the database in the
     URL), so the current database - ``DATABASE()`` - is always the filter.
@@ -75,7 +76,8 @@ def _declared_sqla(con) -> list[FKRelationship]:
         rows = con._raw.execute(
             text(
                 "SELECT table_name, column_name, referenced_table_name, "
-                "referenced_column_name, constraint_name, ordinal_position "
+                "referenced_column_name, constraint_name, ordinal_position, "
+                "referenced_table_schema, table_schema "
                 "FROM information_schema.key_column_usage "
                 "WHERE referenced_table_name IS NOT NULL "
                 "AND table_schema = DATABASE() "
@@ -85,35 +87,35 @@ def _declared_sqla(con) -> list[FKRelationship]:
     else:
         rows = con._raw.execute(
             text(
-                "SELECT tc.table_name, kcu.column_name, ccu.table_name, "
-                "ccu.column_name, tc.constraint_name, kcu.ordinal_position "
-                "FROM information_schema.table_constraints tc "
-                "JOIN information_schema.key_column_usage kcu "
-                "ON tc.constraint_name = kcu.constraint_name "
-                "AND tc.table_schema = kcu.table_schema "
-                "JOIN information_schema.constraint_column_usage ccu "
-                "ON ccu.constraint_name = tc.constraint_name "
-                "AND ccu.table_schema = tc.table_schema "
-                "WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = :schema "
-                "ORDER BY tc.constraint_name, kcu.ordinal_position"
+                "SELECT src.relname, sa.attname, dst.relname, da.attname, "
+                "fk.oid, key.ord, dn.nspname, sn.nspname "
+                "FROM pg_catalog.pg_constraint fk "
+                "JOIN pg_catalog.pg_class src ON src.oid = fk.conrelid "
+                "JOIN pg_catalog.pg_class dst ON dst.oid = fk.confrelid "
+                "JOIN pg_catalog.pg_namespace sn ON sn.oid = src.relnamespace "
+                "JOIN pg_catalog.pg_namespace dn ON dn.oid = dst.relnamespace "
+                "CROSS JOIN LATERAL unnest(fk.conkey, fk.confkey) "
+                "WITH ORDINALITY AS key(source_num, target_num, ord) "
+                "JOIN pg_catalog.pg_attribute sa "
+                "ON sa.attrelid = src.oid AND sa.attnum = key.source_num "
+                "JOIN pg_catalog.pg_attribute da "
+                "ON da.attrelid = dst.oid AND da.attnum = key.target_num "
+                "WHERE fk.contype = 'f' AND sn.nspname = :schema "
+                "ORDER BY fk.oid, key.ord"
             ),
             {"schema": con.sql_schema},
         ).fetchall()
 
-    grouped: dict[str, dict] = {}
-    for table, column, to_table, to_column, cname, _pos in rows:
+    grouped: dict[tuple[str, str], FKRelationship] = {}
+    for table, column, to_table, to_column, cname, _pos, to_schema, from_schema in rows:
         entry = grouped.setdefault(
-            str(cname),
-            {"from_table": _strip_schema(str(table)), "from_columns": [],
-             "to_table": _strip_schema(str(to_table)), "to_columns": []},
+            (str(table), str(cname)),
+            FKRelationship(
+                from_table=str(table), from_columns=[],
+                to_table=str(to_table), to_columns=[],
+                to_schema=str(to_schema) if to_schema != from_schema else None,
+            ),
         )
-        entry["from_columns"].append(str(column))
-        entry["to_columns"].append(str(to_column))
-    return [
-        FKRelationship(
-            from_table=e["from_table"], from_columns=e["from_columns"],
-            to_table=e["to_table"], to_columns=e["to_columns"],
-            declared=True, confidence=1.0,
-        )
-        for e in grouped.values()
-    ]
+        entry.from_columns.append(str(column))
+        entry.to_columns.append(str(to_column))
+    return list(grouped.values())

@@ -1,11 +1,7 @@
 """Great Expectations export (contract -> suite JSON).
 
-Targets GX 1.x suite JSON: ``{"version": "1.0", "type":
-"ExpectationSuite", "name": ..., "expectations": [{"type": ...,
-"kwargs": ...}]}``. The 0.7 exporter emitted the 0.x shape
-(``expectation_suite_name`` / ``expectation_type``) which GX 1.x cannot
-consume directly. Rule types without a GX expectation are listed in
-``meta.unmapped`` so they stay visible.
+Each entry in ``suites`` can be passed to ``gx.ExpectationSuite(**entry)``.
+Rule types without a GX expectation are listed in ``meta.unmapped_rule_ids``.
 """
 from __future__ import annotations
 
@@ -38,13 +34,16 @@ def _expectation(rule) -> dict | None:
                 "kwargs": {"column": rule.column,
                            "regex": rule.params.get("pattern", "")}}
     if rule.type == "row_count":
+        if rule.params.get("exact") is not None:
+            if rule.params.get("min") is not None or rule.params.get("max") is not None:
+                return None
+            return {"type": "expect_table_row_count_to_equal",
+                    "kwargs": {"value": rule.params["exact"]}}
         kwargs = {}
         if rule.params.get("min") is not None:
             kwargs["min_value"] = rule.params["min"]
         if rule.params.get("max") is not None:
             kwargs["max_value"] = rule.params["max"]
-        if rule.params.get("exact") is not None:
-            kwargs["value"] = rule.params["exact"]
         return {"type": "expect_table_row_count_to_be_between", "kwargs": kwargs}
     return None
 
@@ -64,8 +63,6 @@ def export_gx(contract: Contract) -> str:
             exp["meta"] = {"severity": rule.severity, "source": "dq-doctor"}
             expectations.append(exp)
         suites.append({
-            "version": "1.0",
-            "type": "ExpectationSuite",
             "name": f"{table}.suite",
             "expectations": expectations,
             "meta": {

@@ -154,7 +154,7 @@ def test_file_source_sql_rules_are_refused(tmp_root, statement):
     The engine-level file-access block cannot apply there (views re-read the
     file per query), and a keyword policy provably misses shapes such as
     ``JOIN 'x.parquet'`` or ``parquet_metadata(...)``. Refusing the rule is
-    the structural fix; the result is a SKIP with a remediation message.
+    the structural fix; an enabled rule returns an error with a remediation message.
     """
     from dqdoctor.contract import Contract, TableRules
     from dqdoctor.engine import CheckEngine
@@ -169,7 +169,7 @@ def test_file_source_sql_rules_are_refused(tmp_root, statement):
     ])})
     outcome = CheckEngine(ds).run(tables=["data"], contract=contract)
     result = outcome.tables[0].rule_results[0]
-    assert result.status is RuleStatus.SKIP, result.message
+    assert result.status is RuleStatus.ERROR, result.message
     assert "not supported on file datasources" in result.message
 
 
@@ -203,7 +203,7 @@ def test_file_source_join_bypasses_not_executed(tmp_root, template, monkeypatch)
     ])})
     outcome = CheckEngine(ds).run(tables=["data"], contract=contract)
     result = outcome.tables[0].rule_results[0]
-    assert result.status is RuleStatus.SKIP, result.message
+    assert result.status is RuleStatus.ERROR, result.message
     assert "LEAKED" not in result.message
 
 

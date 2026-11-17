@@ -35,6 +35,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from dqdoctor import rules as R
+from dqdoctor.datasources import redact_url
 from dqdoctor.models import RuleSpec, TableProfile
 
 
@@ -90,11 +91,15 @@ def load_contract(path: Path) -> Contract:
     tables: dict[str, TableRules] = {}
     seen_ids: set[str] = set()
     for table, tr in tables_raw.items():
-        raw_rules = (tr or {}).get("rules", [])
+        if not isinstance(tr, dict):
+            raise ContractError(f"tables.{table} must be a mapping")
+        raw_rules = tr.get("rules", [])
         if not isinstance(raw_rules, list):
             raise ContractError(f"tables.{table}.rules must be a list")
         specs = []
         for i, raw in enumerate(raw_rules):
+            if not isinstance(raw, dict):
+                raise ContractError(f"tables.{table}.rules[{i}] must be a mapping")
             try:
                 validated = R.validate_spec(raw, i, table=str(table))
             except ValueError as exc:
@@ -107,18 +112,24 @@ def load_contract(path: Path) -> Contract:
             seen_ids.add(validated["id"])
             specs.append(RuleSpec(**validated))
         tables[str(table)] = TableRules(rules=specs)
+    datasource = data.get("datasource")
+    if datasource is not None and not isinstance(datasource, str):
+        raise ContractError("'datasource' must be a string")
     return Contract(
         version=1,
-        datasource=data.get("datasource"),
+        datasource=datasource,
         generated_at=str(data.get("generated_at") or ""),
         tables=tables,
     )
 
 
 def save_contract(contract: Contract, path: Path) -> Path:
+    datasource = contract.datasource
+    if datasource and "://" in datasource:
+        datasource = redact_url(datasource)
     payload: dict[str, Any] = {
         "version": 1,
-        "datasource": contract.datasource,
+        "datasource": datasource,
         "generated_at": contract.generated_at,
         "tables": {
             table: {
